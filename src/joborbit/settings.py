@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     telegram_bot_token: SecretStr | None = None
     session_secret: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
 
     # --- Telegram ---
     telegram_bot_username: str | None = None
@@ -44,6 +45,7 @@ class Settings(BaseSettings):
     contact_email: str | None = None
     env: Literal["development", "production"] = "development"
     dry_run: bool = True
+    llm_provider: Literal["openai", "anthropic"] = "openai"
 
     @property
     def database_file(self) -> Path:
