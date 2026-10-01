@@ -1,0 +1,21 @@
+# --- Secrets: never commit ---
+.env
+.env.*
+!.env.example
+my_profile.yaml
+
+# --- Runtime data: database, logs, backups ---
+var/
+
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# --- Editors and macOS ---
+.idea/
+.DS_Store
