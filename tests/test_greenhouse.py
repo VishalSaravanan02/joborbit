@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 import respx
-from click import clear
 
 from joborbit.fetchers.greenhouse import API_URL, GreenhouseFetcher
 from joborbit.utils.http import FetchError, HTTPStatusFetchError, PoliteClient
