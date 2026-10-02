@@ -1,0 +1,71 @@
+# Countries JobOrbit understands. Switching one on is a single change: enabled: true.
+#
+# aliases: ways the country itself is written.
+# cities:  cities that identify the country on their own.
+# Matching ignores capitals and only matches whole words, so "uk" never matches inside "ukulele".
+# Avoid short aliases that are also English words (e.g. "in", "my", "es"): they cause false matches.
+
+countries:
+  - code: GB
+    name: United Kingdom
+    enabled: true
+    timezone: Europe/London
+    local_languages: [en]
+    aliases: [united kingdom, uk, u.k., great britain, britain, england, scotland, wales, northern ireland, gb]
+    cities: [london, manchester, birmingham, edinburgh, glasgow, leeds, bristol, cambridge, oxford, liverpool, belfast, cardiff, reading, milton keynes, newcastle, sheffield, nottingham, brighton, southampton, aberdeen, bath, leicester, coventry, swansea, exeter]
+
+  - code: IN
+    name: India
+    enabled: false
+    timezone: Asia/Kolkata
+    local_languages: [hi, en]
+    aliases: [india]
+    cities: [bengaluru, bangalore, hyderabad, pune, chennai, mumbai, gurugram, gurgaon, noida, new delhi, delhi, kolkata, ahmedabad, kochi, coimbatore, jaipur, chandigarh, trivandrum, thiruvananthapuram]
+
+  - code: SG
+    name: Singapore
+    enabled: false
+    timezone: Asia/Singapore
+    local_languages: [en, zh, ms, ta]
+    aliases: [singapore]
+    cities: []
+
+  - code: ES
+    name: Spain
+    enabled: false
+    timezone: Europe/Madrid
+    local_languages: [es, ca]
+    aliases: [spain, españa, espana]
+    cities: [madrid, barcelona, valencia, seville, sevilla, malaga, málaga, bilbao, zaragoza, palma, alicante, granada]
+
+  - code: VN
+    name: Vietnam
+    enabled: false
+    timezone: Asia/Ho_Chi_Minh
+    local_languages: [vi]
+    aliases: [vietnam, viet nam]
+    cities: [hanoi, ha noi, ho chi minh city, ho chi minh, hcmc, saigon, da nang, danang]
+
+  - code: TH
+    name: Thailand
+    enabled: false
+    timezone: Asia/Bangkok
+    local_languages: [th]
+    aliases: [thailand]
+    cities: [bangkok, chiang mai, phuket]
+
+  - code: HK
+    name: Hong Kong
+    enabled: false
+    timezone: Asia/Hong_Kong
+    local_languages: [yue, zh, en]
+    aliases: [hong kong, hong kong sar, hk]
+    cities: [kowloon]
+
+  - code: MY
+    name: Malaysia
+    enabled: false
+    timezone: Asia/Kuala_Lumpur
+    local_languages: [ms, en, zh, ta]
+    aliases: [malaysia]
+    cities: [kuala lumpur, petaling jaya, cyberjaya, penang, johor bahru, putrajaya]
