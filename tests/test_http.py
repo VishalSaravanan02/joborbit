@@ -1,5 +1,7 @@
 """Tests for the polite web client. No real websites are contacted: respx fakes them."""
 
+import gzip
+import json
 import time
 
 import httpx
@@ -34,6 +36,24 @@ async def test_get_json_returns_parsed_data():
     async with make_client() as client:
         assert await client.get_json(URL) == {"jobs": [{"id": 1}]}
 
+@respx.mock
+async def test_compressed_responses_are_unpacked_once():
+    """Real sites send gzip-compressed data; it must be decompressed exactly once."""
+    payload = json.dumps({"jobs": [{"id": 1}]}).encode()
+    respx.get(URL).respond(content=gzip.compress(payload), headers={"Content-Encoding": "gzip"})
+    async with make_client() as client:
+        assert await client.get_json(URL) == {"jobs": [{"id": 1}]}
+
+
+@respx.mock
+async def test_corrupt_response_becomes_a_fetch_error():
+    """A reply that claims to be compressed but isn't must not crash with a raw httpx error."""
+    corrupt = httpx.Response(200, headers={"Content-Encoding": "gzip"}, stream=httpx.ByteStream(b"not gzip"))
+    respx.get(URL).mock(return_value=corrupt)
+    async with make_client() as client:
+        with pytest.raises(FetchError, match="Bad response"):
+            await client.get_json(URL)
+
 
 @respx.mock
 async def test_sends_a_clear_user_agent():
@@ -65,6 +85,15 @@ async def test_gives_up_after_three_server_errors():
 async def test_timeouts_are_retried():
     route = respx.get(URL)
     route.side_effect = [httpx.ConnectTimeout("slow"), httpx.Response(200, json={"ok": True})]
+    async with make_client() as client:
+        assert await client.get_json(URL) == {"ok": True}
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_connection_errors_are_retried():
+    route = respx.get(URL)
+    route.side_effect = [httpx.ConnectError("connection refused"), httpx.Response(200, json={"ok": True})]
     async with make_client() as client:
         assert await client.get_json(URL) == {"ok": True}
     assert route.call_count == 2

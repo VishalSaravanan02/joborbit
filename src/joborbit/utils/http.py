@@ -205,9 +205,15 @@ class PoliteClient:
                     if len(body) > self._max_bytes:
                         raise ResponseTooLargeError(f"Response from {url} is over {self._max_bytes} bytes")
 
+                # The body is already decompressed, so drop the headers describing the
+                # compressed form; otherwise httpx would try to decompress it a second time.
+                headers = httpx.Headers(response.headers)
+                for name in ("content-encoding", "content-length", "transfer-encoding"):
+                    headers.pop(name, None)
+
                 return httpx.Response(
                     status_code=response.status_code,
-                    headers=response.headers,
+                    headers=headers,
                     content=bytes(body),
                     request=response.request,
                 )
@@ -215,6 +221,8 @@ class PoliteClient:
             raise _RetryableError(f"Timed out: {url}") from exc
         except httpx.TransportError as exc:
             raise _RetryableError(f"Connection problem with {url}: {exc}") from exc
+        except httpx.HTTPError as exc:  # anything else httpx can raise, e.g. a corrupt reply
+            raise FetchError(f"Bad response from {url}: {exc}") from exc
 
 
 def _parse_json(response: httpx.Response) -> Any:
