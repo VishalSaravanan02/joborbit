@@ -74,7 +74,9 @@ def test_duplicate_companies_are_rejected(tmp_path):
 
 
 def test_writing_then_reading_gives_the_same_rows(tmp_path):
-    rows = [CompanyRow(name="Monzo", size_category="medium", countries="GB|ES", ats_type="greenhouse", ats_token="monzo")]
+    rows = [
+        CompanyRow(name="Monzo", size_category="medium", countries="GB|ES", ats_type="greenhouse", ats_token="monzo")
+    ]
     path = tmp_path / "out.csv"
     write_company_csv(path, rows)
     assert read_company_csv(path) == rows
@@ -96,9 +98,10 @@ def test_import_adds_companies_and_sets_active_correctly(session):
 def test_importing_again_updates_instead_of_duplicating(session):
     upsert_companies(session, [CompanyRow(name="Monzo", size_category="medium", countries="GB")])
     session.commit()
-    summary = upsert_companies(
-        session, [CompanyRow(name="Monzo", size_category="medium", countries="GB|ES", ats_type="greenhouse", ats_token="monzo")]
+    monzo = CompanyRow(
+        name="Monzo", size_category="medium", countries="GB|ES", ats_type="greenhouse", ats_token="monzo"
     )
+    summary = upsert_companies(session, [monzo])
     session.commit()
     assert (summary.added, summary.updated) == (0, 1)
     [company] = session.scalars(select(Company)).all()
@@ -123,17 +126,23 @@ def test_detections_fill_in_only_certain_results():
         CompanyRow(name="Ready Co", size_category="startup", careers_url="https://ready.example"),
         CompanyRow(name="Workday Co", size_category="mnc", careers_url="https://wd.example"),
         CompanyRow(name="Broken Co", size_category="startup", careers_url="https://broken.example"),
+        CompanyRow(name="Probed Co", size_category="startup"),
+        CompanyRow(name="Unclear Co", size_category="startup"),
         CompanyRow(name="Untouched Co", size_category="startup", ats_type="lever", ats_token="untouched"),
     ]
     detections = {
         "ready-co": Detection("ready", "greenhouse", "readyco", job_count=12),
         "workday-co": Detection("unsupported", "workday", "wdco|wd3|careers"),
         "broken-co": Detection("failed", "lever", "brokenco", message="HTTP 404"),
+        "probed-co": Detection("probed", "ashby", "probedco", job_count=4, sample_url="https://e.com/1"),
+        "unclear-co": Detection("ambiguous", message="Probing found several boards"),
     }
     result = {row.name: (row.ats_type, row.ats_token) for row in apply_detections(rows, detections)}
     assert result == {
         "Ready Co": ("greenhouse", "readyco"),
         "Workday Co": ("workday", "wdco|wd3|careers"),
         "Broken Co": (None, None),  # failed: left for you to fix by hand
+        "Probed Co": ("ashby", "probedco"),  # written in, for you to confirm before importing
+        "Unclear Co": (None, None),  # ambiguous: you choose
         "Untouched Co": ("lever", "untouched"),
     }

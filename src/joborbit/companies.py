@@ -159,13 +159,14 @@ def upsert_companies(session: Session, rows: list[CompanyRow]) -> ImportSummary:
 def apply_detections(rows: list[CompanyRow], detections: dict[str, Detection]) -> list[CompanyRow]:
     """Copy detected ATS details into the rows they belong to (matched by slug).
 
-    Only "ready" and "unsupported" results are applied: in both cases we know the
-    ATS for certain. Rows where detection failed are left untouched to fix by hand.
+    "ready" and "unsupported" results are applied: in both cases we know the ATS.
+    "probed" results are applied too, so they can be reviewed in the CSV before
+    importing. Ambiguous, failed and not-found rows are left untouched to fix by hand.
     """
     updated = []
     for row in rows:
         detection = detections.get(row.slug)
-        if detection is not None and detection.status in ("ready", "unsupported"):
+        if detection is not None and detection.status in ("ready", "unsupported", "probed"):
             row = row.model_copy(update={"ats_type": detection.ats_type, "ats_token": detection.token})
         updated.append(row)
     return updated
