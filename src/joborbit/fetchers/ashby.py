@@ -20,7 +20,7 @@ class AshbyFetcher(Fetcher):
         data = await client.get_json(API_URL.format(token=token))
         if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
             raise FetchError(f"Unexpected reply from Ashby for {token!r}: no 'jobs' list")
-        listed = [raw for raw in data["jobs"] if raw.get("isListed", True)]  # skip hidden jobs
+        listed = [raw for raw in data["jobs"] if not _is_hidden(raw)]
         return self.parse_jobs(listed, token)
 
     def parse_job(self, raw: dict[str, Any]) -> NormalisedJob:
@@ -32,6 +32,15 @@ class AshbyFetcher(Fetcher):
             description_html=raw.get("descriptionHtml") or None,
             posted_at=parse_timestamp(raw.get("publishedAt")),
         )
+
+
+def _is_hidden(raw: Any) -> bool:
+    """True for a job Ashby marks as not listed (hidden from its public board).
+
+    Anything that isn't a proper job object counts as not hidden, so it is passed
+    on to parse_jobs, which skips and logs it instead of crashing the whole fetch.
+    """
+    return isinstance(raw, dict) and not raw.get("isListed", True)
 
 
 def _all_locations(raw: dict[str, Any]) -> str:

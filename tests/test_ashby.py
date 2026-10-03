@@ -70,3 +70,11 @@ async def test_a_malformed_job_is_skipped_not_fatal():
 async def test_unexpected_reply_shape_is_a_fetch_error():
     with pytest.raises(FetchError, match="no 'jobs' list"):
         await fetch_with_reply([])
+
+
+@respx.mock
+async def test_an_entry_that_is_not_a_job_is_skipped_not_fatal():
+    """Anything in the list that isn't a job object must be skipped, not crash the fetch."""
+    reply = copy.deepcopy(FIXTURE)
+    reply["jobs"].append("not a job")
+    assert len(await fetch_with_reply(reply)) == len(FIXTURE["jobs"])
