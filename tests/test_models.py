@@ -1,17 +1,18 @@
 """Checks that the database tables work together as intended."""
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from joborbit.db.models import Base, Company, FetchRun, Job
+from joborbit.db.session import create_sqlite_engine
 
 
 @pytest.fixture
 def session():
-    """A brand-new, empty database in memory for each test."""
-    engine = create_engine("sqlite:///:memory:")
+    """A brand-new, empty database in memory for each test, with the real app's settings."""
+    engine = create_sqlite_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as s:
         yield s
@@ -90,3 +91,48 @@ def test_fetch_run_starts_as_running(session):
     assert run.status == "running"
     assert run.started_at is not None
     assert run.finished_at is None
+
+
+def test_links_between_tables_are_enforced(session):
+    """A job pointing at a company that doesn't exist must be refused, as in the real database."""
+    session.add(Job(company_id=999, ats_type="greenhouse", external_id="1", url="https://e.com/1", title="Analyst"))
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_a_duplicate_job_links_to_the_original(session):
+    company = make_company()
+    session.add(company)
+    session.flush()
+    original = make_job(company, "100")
+    session.add(original)
+    session.flush()
+    repost = make_job(company, "200")
+    repost.duplicate_of_id = original.id
+    session.add(repost)
+    session.commit()
+
+    assert original.duplicate_of_id is None
+    assert repost.duplicate_of_id == original.id
+
+
+def test_deleting_the_original_keeps_the_duplicate_but_clears_the_link(session):
+    """The daily clean-up may delete old closed jobs; their re-posts must survive."""
+    company = make_company()
+    session.add(company)
+    session.flush()
+    original = make_job(company, "100")
+    session.add(original)
+    session.flush()
+    repost = make_job(company, "200")
+    repost.duplicate_of_id = original.id
+    session.add(repost)
+    session.commit()
+
+    session.delete(original)
+    session.commit()
+    session.expire_all()  # read the job again from the database
+
+    [remaining] = session.scalars(select(Job)).all()
+    assert remaining.external_id == "200"
+    assert remaining.duplicate_of_id is None

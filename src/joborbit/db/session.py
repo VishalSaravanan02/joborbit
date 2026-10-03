@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from joborbit.settings import get_settings
 
 
-@lru_cache
-def get_engine() -> Engine:
-    """Create the database connection once and reuse it."""
-    db_file = get_settings().database_file
-    db_file.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(f"sqlite:///{db_file}")
+def create_sqlite_engine(url: str) -> Engine:
+    """Create an SQLite connection with JobOrbit's settings switched on.
+
+    Used for the real database and by the tests, so both follow the same rules
+    (in particular, links between tables are enforced in both).
+    """
+    engine = create_engine(url)
 
     @event.listens_for(engine, "connect")
     def _configure_sqlite(dbapi_connection, _connection_record) -> None:
@@ -27,6 +28,14 @@ def get_engine() -> Engine:
         cursor.close()
 
     return engine
+
+
+@lru_cache
+def get_engine() -> Engine:
+    """Create the connection to the real database file once and reuse it."""
+    db_file = get_settings().database_file
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    return create_sqlite_engine(f"sqlite:///{db_file}")
 
 
 @lru_cache

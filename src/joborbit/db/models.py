@@ -34,6 +34,7 @@ NAMING_CONVENTION = {
     "pk": "pk_%(table_name)s",
 }
 
+
 class Base(DeclarativeBase):
     """The parent class every table inherits from."""
 
@@ -92,6 +93,9 @@ class Job(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64))
     fingerprint: Mapped[str | None] = mapped_column(String(64))
     is_baseline: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Set when this job is a re-post of another job at the same company (same fingerprint).
+    # The link lets the dashboard follow a saved job to its re-post if the original closes.
+    duplicate_of_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
     prefilter_status: Mapped[str] = mapped_column(String(20), default="pending")
     prefilter_reason: Mapped[str | None] = mapped_column(String(200))
     analysis_status: Mapped[str] = mapped_column(String(20), default="pending")
