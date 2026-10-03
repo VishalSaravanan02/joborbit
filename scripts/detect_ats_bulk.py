@@ -1,11 +1,14 @@
 """Fill in the ATS and token for every company in the company CSV, and report the results.
 
 Usage:
-    python scripts/detect_ats_bulk.py [CSV_FILE] [--recheck]
+    python scripts/detect_ats_bulk.py [CSV_FILE] [--recheck] [--only NAME [NAME ...]]
 
 CSV_FILE defaults to data/companies_seed.csv. Rows that already have an ATS and
 token are skipped unless --recheck is given. Rows without a careers URL are still
 checked, by probing with the company's name.
+
+--only checks just the named companies (even if they already have an ATS), e.g.
+    python scripts/detect_ats_bulk.py --only "Octopus Energy" Wayve
 
 Results are written back to the same file. Companies found by probing are written
 in too, but check each one's sample job link before importing: probing can find
@@ -18,12 +21,21 @@ import asyncio
 from collections import defaultdict
 from pathlib import Path
 
-from joborbit.companies import CompanyRow, apply_detections, read_company_csv, write_company_csv
+from joborbit.companies import CompanyRow, apply_detections, read_company_csv, slugify, write_company_csv
 from joborbit.fetchers.detect import Detection, detect_ats
 from joborbit.settings import PROJECT_ROOT
 from joborbit.utils.http import PoliteClient
 
 DEFAULT_CSV = PROJECT_ROOT / "data" / "companies_seed.csv"
+
+
+def select_by_name(rows: list[CompanyRow], names: list[str]) -> list[CompanyRow]:
+    """The rows for these company names (case and punctuation don't matter). Stops if any is missing."""
+    by_slug = {row.slug: row for row in rows}
+    missing = [name for name in names if slugify(name) not in by_slug]
+    if missing:
+        raise SystemExit(f"Not in the company list: {', '.join(missing)}")
+    return [by_slug[slug] for slug in dict.fromkeys(slugify(name) for name in names)]
 
 
 async def detect_rows(rows: list[CompanyRow]) -> dict[str, Detection]:
@@ -74,6 +86,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("csv_file", nargs="?", type=Path, default=DEFAULT_CSV)
     parser.add_argument("--recheck", action="store_true", help="also re-detect rows that already have an ATS")
+    parser.add_argument("--only", nargs="+", metavar="NAME", help="check only these companies (by name)")
     args = parser.parse_args()
 
     try:
@@ -81,8 +94,12 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
-    to_check = [r for r in rows if args.recheck or not (r.ats_type and r.ats_token)]
-    skipped = [r for r in rows if r not in to_check]
+    if args.only:
+        to_check = select_by_name(rows, args.only)
+        skipped = []  # everything else was left alone on purpose; no need to list it
+    else:
+        to_check = [r for r in rows if args.recheck or not (r.ats_type and r.ats_token)]
+        skipped = [r for r in rows if r not in to_check]
     print(f"Checking {len(to_check)} companies (this can take a few minutes)...")
 
     detections = asyncio.run(detect_rows(to_check))

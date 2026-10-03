@@ -95,7 +95,24 @@ def read_company_csv(path: Path) -> list[CompanyRow]:
     rows: list[CompanyRow] = []
     problems: list[str] = []
     with path.open(newline="", encoding="utf-8") as file:
-        for line_number, raw in enumerate(csv.DictReader(file), start=2):  # line 1 is the header
+        reader = csv.DictReader(file)
+        if reader.fieldnames != CSV_COLUMNS:
+            raise ValueError(
+                f"The first line of {path.name} must be exactly:\n  {','.join(CSV_COLUMNS)}\n"
+                f"but it is:\n  {','.join(reader.fieldnames or [])}"
+            )
+        for line_number, raw in enumerate(reader, start=2):  # line 1 is the header
+            # A wrong number of commas would silently shift or drop values, so refuse the row.
+            if None in raw:  # the csv module puts any extra values under the key None
+                count = len(CSV_COLUMNS) + len(raw[None])
+                problems.append(
+                    f"line {line_number}: {count} columns instead of {len(CSV_COLUMNS)} "
+                    '(an extra comma? Put text that contains commas in "double quotes")'
+                )
+                continue
+            if None in raw.values():  # ...and missing values come back as None
+                problems.append(f"line {line_number}: fewer than {len(CSV_COLUMNS)} columns")
+                continue
             try:
                 rows.append(CompanyRow.model_validate(raw))
             except ValueError as exc:

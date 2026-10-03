@@ -67,6 +67,31 @@ def test_every_bad_row_is_reported_at_once(tmp_path):
     assert "line 2" not in message
 
 
+def test_a_row_with_an_extra_comma_is_rejected(tmp_path):
+    path = write_csv(tmp_path, "Good Ltd,startup,technology,GB,,,,\nAcme,startup,technology,GB,,,,note,\n")
+    with pytest.raises(ValueError, match="line 3: 9 columns instead of 8"):
+        read_company_csv(path)
+
+
+def test_a_row_with_too_few_columns_is_rejected(tmp_path):
+    path = write_csv(tmp_path, "Acme,startup,technology,GB\n")
+    with pytest.raises(ValueError, match="line 2: fewer than 8 columns"):
+        read_company_csv(path)
+
+
+def test_commas_inside_double_quotes_are_kept(tmp_path):
+    [row] = read_company_csv(write_csv(tmp_path, 'Acme,startup,technology,GB,,,,"office roles, warehouse roles"\n'))
+    assert row.notes == "office roles, warehouse roles"
+
+
+def test_a_wrong_header_is_rejected(tmp_path):
+    path = tmp_path / "companies.csv"
+    path.write_text(HEADER.replace("countries", "contries") + "Acme,startup,technology,GB,,,,\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="must be exactly"):
+        read_company_csv(path)
+
+
+
 def test_duplicate_companies_are_rejected(tmp_path):
     path = write_csv(tmp_path, "Monzo,medium,fintech,GB,,,,\nmonzo,medium,fintech,GB,,,,\n")
     with pytest.raises(ValueError, match="duplicate company"):
