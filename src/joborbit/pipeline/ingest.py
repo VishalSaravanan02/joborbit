@@ -19,20 +19,29 @@ are its jobs closed as normal.
 
 Saving never commits: the caller decides when to save, so one company's changes
 are saved or undone together.
+
+run_fetch_cycle ties it together: it fetches every active company at once
+(politely, through one shared client), then saves each company's results in its
+own transaction and records a fetch run for it. One company failing, for any
+reason, never stops the others.
 """
 
+import asyncio
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from joborbit.db.models import Company, Job
+from joborbit.db.models import Company, FetchRun, Job
+from joborbit.db.session import get_engine
 from joborbit.fetchers.base import NormalisedJob
+from joborbit.fetchers.registry import get_fetcher
 from joborbit.pipeline.location import parse_location
 from joborbit.pipeline.normalise import content_hash, html_to_text, job_fingerprint
+from joborbit.utils.http import FetchError, PoliteClient
 from joborbit.utils.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
@@ -274,3 +283,156 @@ def _skip(job: Job, reason: str) -> None:
     """Mark a job so the pre-filter never picks it up."""
     job.prefilter_status = SKIPPED
     job.prefilter_reason = reason
+
+
+# --- The fetch cycle -------------------------------------------------------------
+
+MAX_ERROR_CHARS = 1000  # longest error message stored on a fetch run
+
+
+@dataclass
+class CompanyOutcome:
+    """How one company's fetch went in a cycle."""
+
+    company_id: int
+    company_name: str
+    ok: bool
+    error: str | None = None
+    saved: SaveResult | None = None  # only for successful fetches
+
+
+@dataclass
+class CycleResult:
+    """Everything one fetch cycle did, company by company."""
+
+    started_at: datetime
+    finished_at: datetime
+    outcomes: list[CompanyOutcome] = field(default_factory=list)
+
+    @property
+    def new_job_ids(self) -> list[int]:
+        """Every genuinely new job found in this cycle: the input to the pre-filter."""
+        return [job_id for outcome in self.outcomes if outcome.saved for job_id in outcome.saved.new_job_ids]
+
+    @property
+    def failed(self) -> list[CompanyOutcome]:
+        return [outcome for outcome in self.outcomes if not outcome.ok]
+
+
+@dataclass(frozen=True)
+class _Target:
+    """The few details needed to fetch one company, read before any fetching starts."""
+
+    id: int
+    name: str
+    ats_type: str | None
+    ats_token: str | None
+
+
+@dataclass
+class _Fetched:
+    """The raw outcome of fetching one company: its jobs, or the error that stopped it."""
+
+    target: _Target
+    started_at: datetime
+    finished_at: datetime
+    jobs: list[NormalisedJob] | None = None
+    error: str | None = None
+
+
+async def run_fetch_cycle(
+    session_factory: Callable[[], Session] | None = None,
+    client: PoliteClient | None = None,
+) -> CycleResult:
+    """Fetch every active company once, save what changed, and record a fetch run for each.
+
+    Both arguments are for tests; normally the real database and a new polite client are used.
+    """
+    session_factory = session_factory or sessionmaker(bind=get_engine(), expire_on_commit=False)
+    cycle_started = utcnow()
+
+    with session_factory() as session:
+        targets = [
+            _Target(company.id, company.name, company.ats_type, company.ats_token)
+            for company in session.scalars(select(Company).where(Company.active).order_by(Company.id))
+        ]
+    logger.info("Fetch cycle started: %d active companies", len(targets))
+
+    # First half: fetch everything at once. The client's limits keep this polite.
+    if client is None:
+        async with PoliteClient() as own_client:
+            fetched = await asyncio.gather(*(_fetch_one(target, own_client) for target in targets))
+    else:
+        fetched = await asyncio.gather(*(_fetch_one(target, client) for target in targets))
+
+    # Second half: save one company at a time, each in its own transaction.
+    result = CycleResult(started_at=cycle_started, finished_at=cycle_started)
+    for item in fetched:
+        result.outcomes.append(_save_one(session_factory, item))
+    result.finished_at = utcnow()
+
+    logger.info(
+        "Fetch cycle finished in %.1f s: %d ok, %d failed, %d new jobs",
+        (result.finished_at - result.started_at).total_seconds(),
+        len(result.outcomes) - len(result.failed),
+        len(result.failed),
+        len(result.new_job_ids),
+    )
+    return result
+
+
+async def _fetch_one(target: _Target, client: PoliteClient) -> _Fetched:
+    """Fetch one company's jobs. Never raises: any problem is returned as an error message."""
+    started_at = utcnow()
+    fetcher = get_fetcher(target.ats_type)
+    if fetcher is None or not target.ats_token:
+        return _Fetched(target, started_at, utcnow(), error=f"No fetcher or token for ATS {target.ats_type!r}")
+    try:
+        jobs = await fetcher.fetch(target.ats_token, client)
+    except FetchError as exc:
+        logger.warning("Fetching %s failed: %s", target.name, exc)
+        return _Fetched(target, started_at, utcnow(), error=str(exc))
+    except Exception as exc:  # a bug in our code must not stop the other companies
+        logger.exception("Unexpected error while fetching %s", target.name)
+        return _Fetched(target, started_at, utcnow(), error=f"Unexpected error: {type(exc).__name__}: {exc}")
+    return _Fetched(target, started_at, utcnow(), jobs=jobs)
+
+
+def _save_one(session_factory: Callable[[], Session], item: _Fetched) -> CompanyOutcome:
+    """Save one company's results and its fetch run, as one transaction."""
+    target = item.target
+    if item.error is None:
+        try:
+            with session_factory() as session, session.begin():
+                company = session.get_one(Company, target.id)
+                saved = save_fetched_jobs(session, company, item.jobs or [])
+                company.consecutive_failures = 0
+                company.last_fetch_ok_at = item.finished_at
+                session.add(_fetch_run(item, status="ok", saved=saved))
+            logger.info(
+                "%s: %d jobs, %d new, %d baseline, %d closed",
+                target.name, saved.jobs_returned, len(saved.new_job_ids), saved.baseline, saved.closed,
+            )
+            return CompanyOutcome(target.id, target.name, ok=True, saved=saved)
+        except Exception as exc:  # saving failed: everything for this company was undone
+            logger.exception("Unexpected error while saving %s", target.name)
+            item.error = f"Unexpected error while saving: {type(exc).__name__}: {exc}"
+
+    # The fetch (or the save) failed: never close jobs, just record the failure.
+    with session_factory() as session, session.begin():
+        company = session.get_one(Company, target.id)
+        company.consecutive_failures += 1
+        session.add(_fetch_run(item, status="error"))
+    return CompanyOutcome(target.id, target.name, ok=False, error=item.error)
+
+
+def _fetch_run(item: _Fetched, status: str, saved: SaveResult | None = None) -> FetchRun:
+    return FetchRun(
+        company_id=item.target.id,
+        started_at=item.started_at,
+        finished_at=item.finished_at,
+        status=status,
+        jobs_returned=saved.jobs_returned if saved else None,
+        new_jobs=len(saved.new_job_ids) if saved else None,
+        error=item.error[:MAX_ERROR_CHARS] if item.error else None,
+    )
