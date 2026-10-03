@@ -9,6 +9,7 @@ import pytest
 import respx
 
 from joborbit.fetchers.greenhouse import API_URL, GreenhouseFetcher
+from joborbit.pipeline.location import parse_location
 from joborbit.utils.http import FetchError, HTTPStatusFetchError, PoliteClient
 
 pytestmark = pytest.mark.anyio
@@ -86,3 +87,51 @@ async def test_unknown_company_gives_a_404_error():
     async with make_client() as client:
         with pytest.raises(HTTPStatusFetchError):
             await GreenhouseFetcher().fetch("monzo", client)
+
+
+# --- Locations: the location field plus the offices list ------------------------------
+
+
+def location_of(location, offices) -> str:
+    raw = {"id": 1, "title": "Data Analyst", "absolute_url": "https://e.com/1", "location": location}
+    if offices is not None:
+        raw["offices"] = offices
+    return GreenhouseFetcher().parse_job(raw).location_raw
+
+
+def test_offices_are_added_when_the_location_is_only_a_way_of_working():
+    """Cloudflare-style: the location says "Hybrid"; the cities are only in offices."""
+    offices = [{"name": "Austin, TX", "location": None}, {"name": "London, United Kingdom", "location": None}]
+    text = location_of({"name": "Hybrid"}, offices)
+    assert text == "Hybrid / Austin, TX / London, United Kingdom"
+    assert parse_location(text).countries == ["GB"]
+
+
+def test_an_office_already_in_the_location_is_not_repeated():
+    """Monzo-style: the office "London" is already in the location text."""
+    text = location_of({"name": "Cardiff, London or Remote (UK)"}, [{"name": "London"}])
+    assert text == "Cardiff, London or Remote (UK)"
+
+
+def test_the_same_office_twice_is_listed_once():
+    text = location_of({"name": "Hybrid"}, [{"name": "Singapore"}, {"name": "singapore"}])
+    assert text == "Hybrid / Singapore"
+
+
+def test_offices_are_used_when_there_is_no_location():
+    assert location_of(None, [{"name": "London, United Kingdom"}]) == "London, United Kingdom"
+    assert location_of({}, [{"name": "Remote India"}]) == "Remote India"
+
+
+def test_missing_or_odd_offices_are_ignored():
+    assert location_of({"name": "London"}, None) == "London"
+    assert location_of({"name": "London"}, []) == "London"
+    assert location_of({"name": "London"}, [None, "Paris", {"name": None}, {"name": "  "}]) == "London"
+
+
+def test_real_monzo_locations_are_unchanged():
+    """Our saved Monzo reply has offices on every job; none of its locations should change."""
+    jobs = GreenhouseFetcher().parse_jobs(FIXTURE["jobs"], "monzo")
+    assert [job.location_raw for job in jobs] == [
+        (raw.get("location") or {}).get("name") for raw in FIXTURE["jobs"]
+    ]

@@ -25,15 +25,34 @@ class GreenhouseFetcher(Fetcher):
         return self.parse_jobs(data["jobs"], token)
 
     def parse_job(self, raw: dict[str, Any]) -> NormalisedJob:
-        location = raw.get("location") or {}
         content = raw.get("content")
         return NormalisedJob(
             external_id=raw["id"],
             title=raw.get("title") or "",
             url=raw.get("absolute_url") or "",
-            location_raw=location.get("name") or "",
+            location_raw=_location_with_offices(raw),
             # Greenhouse sends the description HTML "escaped" (&lt;p&gt; instead of <p>).
             description_html=html.unescape(content) if content else None,
             # first_published = when the job went live; updated_at changes on every edit.
             posted_at=parse_timestamp(raw.get("first_published") or raw.get("updated_at")),
         )
+
+
+def _location_with_offices(raw: dict[str, Any]) -> str:
+    """The job's location, plus any office names it doesn't already mention.
+
+    Some companies use the location field for the way of working ("Hybrid",
+    "Distributed") and list the actual cities only under offices, e.g. location
+    "Hybrid" with offices "Austin, TX" and "London, United Kingdom". Adding the office
+    names gives "Hybrid / Austin, TX / London, United Kingdom", which the location
+    parser understands. Office names already in the text are not repeated.
+    """
+    location = raw.get("location")
+    text = (location.get("name") if isinstance(location, dict) else None) or ""
+    parts = [text.strip()] if text.strip() else []
+    for office in raw.get("offices") or []:
+        name = (office.get("name") if isinstance(office, dict) else None) or ""
+        name = name.strip()
+        if name and not any(name.lower() in part.lower() for part in parts):
+            parts.append(name)
+    return " / ".join(parts)
