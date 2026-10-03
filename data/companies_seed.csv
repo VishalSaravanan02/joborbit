@@ -2,3 +2,66 @@ name,size_category,industry,countries,careers_url,ats_type,ats_token,notes
 Monzo,medium,fintech,GB|ES|US,https://job-boards.greenhouse.io/monzo,greenhouse,monzo,
 Palantir,mnc,technology,GB|US|SG,https://jobs.lever.co/palantir,lever,palantir,
 ElevenLabs,startup,technology,GB|US|PL|IN,https://jobs.ashbyhq.com/elevenlabs,ashby,elevenlabs,
+Google DeepMind,mnc,technology,GB|IN,https://deepmind.google/about/careers/,,,AI
+Anthropic,medium,technology,GB|IN,https://www.anthropic.com/careers,greenhouse,anthropic,AI
+OpenAI,medium,technology,GB|SG|IN,https://openai.com/careers/,,,AI
+Cohere,medium,technology,GB,https://cohere.com/careers,ashby,cohere,AI
+Synthesia,startup,technology,GB,https://www.synthesia.io/careers,ashby,synthesia,AI
+Stripe,mnc,fintech,GB|SG|IN,https://stripe.com/jobs,greenhouse,stripe,
+GoCardless,medium,fintech,GB,https://gocardless.com/about/careers/,greenhouse,gocardless,
+Plaid,medium,fintech,GB,https://plaid.com/careers/,ashby,plaid,
+Spotify,mnc,media,GB|SG|IN,https://www.lifeatspotify.com/jobs,lever,spotify,consumer tech
+Skyscanner,medium,technology,GB|SG,https://www.skyscanner.net/jobs,,,travel
+Deliveroo,medium,e-commerce,GB|SG,https://careers.deliveroo.co.uk/,greenhouse,deliveroo,office roles on Greenhouse; warehouse roles on Ashby
+Isomorphic Labs,startup,healthcare,GB,https://www.isomorphiclabs.com/careers,greenhouse,isomorphiclabs,healthtech; AI drug discovery
+Databricks,mnc,technology,GB|SG|IN,https://www.databricks.com/company/careers,greenhouse,databricks,data tools
+Datadog,mnc,technology,GB|SG|IN,https://careers.datadoghq.com/,greenhouse,datadog,data tools
+MongoDB,mnc,technology,GB|SG|IN,https://www.mongodb.com/careers,greenhouse,mongodb,data tools
+Cloudflare,mnc,technology,GB|SG|IN,https://www.cloudflare.com/careers/,greenhouse,cloudflare,cloud
+Elastic,mnc,technology,GB|SG|IN,https://www.elastic.co/careers,greenhouse,elastic,data tools
+Twilio,mnc,technology,GB|SG|IN,https://www.twilio.com/en-us/company/jobs,greenhouse,twilio,cloud
+Okta,mnc,technology,GB|SG|IN,https://www.okta.com/company/careers/,greenhouse,okta,cloud
+Figma,medium,technology,GB,https://www.figma.com/careers/,greenhouse,figma,
+Snowflake,mnc,technology,GB|SG|IN,https://careers.snowflake.com/,ashby,snowflake,data tools
+Confluent,mnc,technology,GB|SG|IN,https://careers.confluent.io/,ashby,confluent,data tools
+Dataiku,medium,technology,GB|SG,https://www.dataiku.com/careers/,greenhouse,dataiku,data tools
+Fivetran,medium,technology,GB|SG|IN,https://www.fivetran.com/careers,greenhouse,fivetran,data tools
+Amplitude,medium,technology,GB|SG,https://amplitude.com/careers,ashby,amplitude,data tools
+Notion,medium,technology,GB,https://www.notion.com/careers,ashby,notion,
+Glean,medium,technology,GB|IN,https://www.glean.com/careers,greenhouse,gleanwork,AI
+Airwallex,medium,fintech,GB|SG|HK,https://www.airwallex.com/careers,ashby,airwallex,
+Adyen,mnc,fintech,GB|SG|HK|MY|IN|ES,https://careers.adyen.com/,greenhouse,adyen,
+Coinbase,mnc,fintech,GB|SG|IN,https://www.coinbase.com/careers,greenhouse,coinbase,crypto
+Checkout.com,medium,fintech,GB|SG|HK,https://www.checkout.com/careers,,,
+Wise,mnc,fintech,GB|SG|HK|IN,https://wise.jobs/,,,greenhouse/wise is a different company (US sales agents)
+Ripple,medium,fintech,GB|SG|IN,https://ripple.com/careers/,greenhouse,ripple,crypto
+Crypto.com,medium,fintech,GB|SG|HK,https://crypto.com/careers,,,crypto
+Thought Machine,medium,fintech,GB|SG,https://www.thoughtmachine.net/careers,ashby,thought-machine,core banking software
+Nium,medium,fintech,GB|SG|IN|HK,https://www.nium.com/careers,lever,nium,
+Rapyd,medium,fintech,GB|SG|HK,https://www.rapyd.net/company/careers/,,,
+Wintermute,startup,fintech,GB|SG,https://www.wintermute.com/careers,,,crypto trading
+OKX,medium,fintech,GB|SG|HK,https://www.okx.com/join-us,greenhouse,okx,crypto
+Deel,medium,fintech,GB|SG|IN,https://jobs.deel.com/,,,payroll and HR
+Squarepoint Capital,medium,other,GB|SG|HK,https://www.squarepoint-capital.com/careers,greenhouse,squarepointcapital,quant trading
+Optiver,medium,other,GB|SG|HK,https://optiver.com/working-at-optiver/career-opportunities/,,,quant trading
+Airbnb,mnc,technology,GB|SG|IN,https://careers.airbnb.com/,greenhouse,airbnb,consumer tech
+Canva,mnc,technology,GB,https://www.lifeatcanva.com/en/jobs/,,,consumer tech
+Miro,medium,technology,GB,https://miro.com/careers/,ashby,miro,productivity
+Recursion,medium,healthcare,GB,https://www.recursion.com/careers,greenhouse,recursionpharmaceuticals,healthtech; AI drug discovery
+Owkin,startup,healthcare,GB,https://www.owkin.com/careers,ashby,owkin,healthtech; AI
+Octopus Energy,mnc,energy,GB|ES,,,,
+Ocado Group,mnc,retail,GB,,greenhouse,ocadogroup,Ocado Technology
+Wayve,startup,technology,GB,,ashby,wayve,AI; self-driving
+Faculty,medium,consulting,GB,,ashby,faculty,AI
+Quantexa,medium,technology,GB|SG,,ashby,quantexa,data tools
+Cleo,startup,fintech,GB,,,,AI; greenhouse/cleo is a different company (US roles)
+Tide,medium,fintech,GB|IN,,greenhouse,tide,
+Zopa,medium,banking,GB,,lever,zopa,
+Starling Bank,medium,banking,GB,,,,
+Marshmallow,startup,insurance,GB,,ashby,marshmallow,
+Lendable,medium,fintech,GB,,ashby,lendable,
+PhysicsX,startup,technology,GB|SG,,greenhouse,physicsx,AI
+ClearScore,medium,fintech,GB,,,,
+Moneybox,medium,fintech,GB,,ashby,moneybox,
+OakNorth,medium,banking,GB|IN,,ashby,oaknorth,
+Trainline,medium,technology,GB,,ashby,trainline,travel
