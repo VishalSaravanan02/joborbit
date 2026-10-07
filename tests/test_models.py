@@ -1,11 +1,23 @@
 """Checks that the database tables work together as intended."""
 
+from datetime import date
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from joborbit.db.models import Base, Company, FetchRun, Job, User, UserCompanyPref, UserProfile
+from joborbit.db.models import (
+    Base,
+    Company,
+    FetchRun,
+    Job,
+    JobAnalysis,
+    LlmUsage,
+    User,
+    UserCompanyPref,
+    UserProfile,
+)
 from joborbit.db.session import create_sqlite_engine
 
 
@@ -246,3 +258,105 @@ def test_added_by_must_be_a_real_user(session):
     session.add(make_company(added_by_user_id=999))
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+# --- Job analysis and LLM usage ------------------------------------------------------------
+
+
+def add_job(session) -> Job:
+    company = make_company()
+    session.add(company)
+    session.flush()
+    job = make_job(company)
+    session.add(job)
+    session.flush()
+    return job
+
+
+def make_analysis(job_id: int, **overrides) -> JobAnalysis:
+    """An analysis with only the columns that have no default filled in."""
+    data = {
+        "job_id": job_id,
+        "summary": "Two-year data science graduate scheme.",
+        "model": "example-model",
+        "prompt_version": "1",
+        "input_tokens": 2000,
+        "output_tokens": 250,
+    }
+    data.update(overrides)
+    return JobAnalysis(**data)
+
+
+def test_an_analysis_saves_with_sensible_defaults(session):
+    job = add_job(session)
+    session.add(make_analysis(job.id, deadline=date(2026, 11, 15)))
+    session.commit()
+    session.expire_all()  # read everything back from the database
+
+    analysis = job.analysis
+    assert analysis.job.title == "Graduate Data Scientist"
+    assert analysis.countries == [] and analysis.role_families == [] and analysis.required_languages == []
+    assert analysis.is_graduate_scheme is False and analysis.experience_mandatory is False
+    assert analysis.seniority is None and analysis.experience_years is None and analysis.min_degree is None
+    assert analysis.deadline == date(2026, 11, 15)
+    assert analysis.analysed_at is not None
+
+
+@pytest.mark.parametrize("missing", ["summary", "model", "prompt_version", "input_tokens", "output_tokens"])
+def test_an_analysis_must_record_its_summary_model_prompt_and_tokens(session, missing):
+    job = add_job(session)
+    session.add(make_analysis(job.id, **{missing: None}))
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_a_job_has_at_most_one_analysis(session):
+    job = add_job(session)
+    session.add(make_analysis(job.id))
+    session.flush()
+    session.add(make_analysis(job.id))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_an_analysis_must_belong_to_a_real_job(session):
+    session.add(make_analysis(999))
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_deleting_a_job_deletes_its_analysis(session):
+    job = add_job(session)
+    session.add(make_analysis(job.id))
+    session.commit()
+
+    session.delete(job)
+    session.commit()
+    assert session.scalars(select(JobAnalysis)).all() == []
+
+
+def test_the_database_itself_deletes_the_analysis_with_its_job(session):
+    """Done by ON DELETE CASCADE, so a bulk clean-up of old jobs can't leave analyses behind."""
+    job = add_job(session)
+    session.add(make_analysis(job.id))
+    session.commit()
+
+    session.execute(Job.__table__.delete())
+    session.commit()
+    assert session.scalars(select(JobAnalysis)).all() == []
+
+
+def test_llm_usage_starts_at_zero(session):
+    session.add(LlmUsage(day=date(2026, 10, 8)))
+    session.commit()
+    session.expire_all()
+    usage = session.get(LlmUsage, date(2026, 10, 8))
+    assert (usage.calls, usage.input_tokens, usage.output_tokens, usage.est_cost_usd) == (0, 0, 0, 0.0)
+
+
+def test_llm_usage_has_one_row_per_day(session):
+    session.add(LlmUsage(day=date(2026, 10, 8)))
+    session.flush()
+    session.add(LlmUsage(day=date(2026, 10, 8)))
+    with pytest.raises(IntegrityError):
+        session.flush()

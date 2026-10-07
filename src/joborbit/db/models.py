@@ -3,17 +3,19 @@
 Each class is one table, and each attribute is one column. Tables are added
 in the step that first needs them. All times are stored in UTC.
 
-Shared tables (one copy for everyone): companies, jobs, fetch_runs.
+Shared tables (one copy for everyone): companies, jobs, fetch_runs, job_analysis, llm_usage.
 Personal tables (one row per user): users, user_profiles, user_company_prefs.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -102,8 +104,60 @@ class Job(Base):
     prefilter_status: Mapped[str] = mapped_column(String(20), default="pending")
     prefilter_reason: Mapped[str | None] = mapped_column(String(200))
     analysis_status: Mapped[str] = mapped_column(String(20), default="pending")
-
     company: Mapped[Company] = relationship(back_populates="jobs")
+    # Deleting a job deletes its analysis with it.
+    analysis: Mapped["JobAnalysis | None"] = relationship(
+        back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class JobAnalysis(Base):
+    """The LLM's reading of one job: one row per analysed job.
+
+    Every answer is checked by joborbit/llm/schemas.py before it is saved here.
+    None means the posting doesn't say. A job analysed again has this row updated.
+    """
+
+    __tablename__ = "job_analysis"
+
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True)
+    countries: Mapped[list[str]] = mapped_column(JSON, default=list)  # where the job can be done, e.g. ["GB"]
+    cities: Mapped[list[str]] = mapped_column(JSON, default=list)
+    work_mode: Mapped[str | None] = mapped_column(String(20))  # "onsite", "hybrid" or "remote"
+    seniority: Mapped[str | None] = mapped_column(String(20))  # "intern", "graduate", "entry", "mid" or "senior"
+    is_graduate_scheme: Mapped[bool] = mapped_column(Boolean, default=False)
+    experience_years: Mapped[int | None] = mapped_column(Integer)
+    experience_mandatory: Mapped[bool] = mapped_column(Boolean, default=False)  # required, not just preferred
+    # Language codes, e.g. ["en", "es"]; "other" means a language not in languages.yaml.
+    required_languages: Mapped[list[str]] = mapped_column(JSON, default=list)
+    role_families: Mapped[list[str]] = mapped_column(JSON, default=list)  # role slugs, best first; [] = none of ours
+    matched_custom_roles: Mapped[list[str]] = mapped_column(JSON, default=list)  # users' custom role names
+    skills: Mapped[list[str]] = mapped_column(JSON, default=list)
+    min_degree: Mapped[str | None] = mapped_column(String(20))  # "none", "bachelor", "master" or "phd"
+    deadline: Mapped[date | None] = mapped_column(Date)
+    summary: Mapped[str] = mapped_column(String(200))  # one line for alerts
+    model: Mapped[str] = mapped_column(String(100))  # the LLM that made this analysis
+    prompt_version: Mapped[str] = mapped_column(String(50))  # the prompt it was given
+    input_tokens: Mapped[int] = mapped_column(Integer)
+    output_tokens: Mapped[int] = mapped_column(Integer)
+    analysed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    job: Mapped[Job] = relationship(back_populates="analysis")
+
+
+class LlmUsage(Base):
+    """LLM use on one day (UTC), for the budget guard.
+
+    Every request counts, retries included, because every request is paid for.
+    """
+
+    __tablename__ = "llm_usage"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    est_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)  # estimated from token prices
 
 
 class FetchRun(Base):
