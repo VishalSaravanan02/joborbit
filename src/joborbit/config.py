@@ -185,6 +185,30 @@ class LanguagesFile(BaseModel):
         return self
 
 
+# --- settings.yaml --------------------------------------------------------------
+
+
+class LimitsConfig(BaseModel):
+    """Limits on what one person can enter, and on the number of people."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_roles_per_user: int = Field(gt=0)
+    max_role_name_chars: int = Field(gt=0)
+    max_favourites_per_user: int = Field(gt=0)
+    max_skills_per_user: int = Field(gt=0)
+    max_skill_chars: int = Field(gt=0)
+    max_users: int = Field(gt=0)
+
+
+class AppSettings(BaseModel):
+    """Everything in settings.yaml. A new section gets a new field here when it is added."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limits: LimitsConfig
+
+
 # --- Loading ------------------------------------------------------------------------
 
 
@@ -221,3 +245,9 @@ def load_industries(path: Path = CONFIG_DIR / "industries.yaml") -> list[Industr
 def load_languages(path: Path = CONFIG_DIR / "languages.yaml") -> list[LanguageConfig]:
     """Every language in languages.yaml, in file order."""
     return LanguagesFile.model_validate(_read_yaml(path)).languages
+
+
+@lru_cache
+def load_app_settings(path: Path = CONFIG_DIR / "settings.yaml") -> AppSettings:
+    """The tunable settings from settings.yaml (secrets are in .env, read by joborbit.settings)."""
+    return AppSettings.model_validate(_read_yaml(path))

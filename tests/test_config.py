@@ -1,11 +1,18 @@
-"""Tests for loading the config files (roles, seniority, industries, languages) and their rules."""
+"""Tests for loading the config files (roles, seniority, industries, languages, settings) and their rules."""
 
 import re
 
 import pytest
 from pydantic import ValidationError
 
-from joborbit.config import load_countries, load_industries, load_languages, load_roles, load_seniority
+from joborbit.config import (
+    load_app_settings,
+    load_countries,
+    load_industries,
+    load_languages,
+    load_roles,
+    load_seniority,
+)
 
 # The 15 default roles agreed in the build plan, in order.
 DEFAULT_SLUGS = [
@@ -204,3 +211,41 @@ def test_unknown_industry_or_language_fields_are_refused(tmp_path):
         load_industries(write(tmp_path, "industries:\n  - {slug: ai, name: AI, label: x}\n", "industries.yaml"))
     with pytest.raises(ValidationError):
         load_languages(write(tmp_path, "languages:\n  - {code: en, nam: English}\n", "languages.yaml"))
+
+
+def test_the_settings_limits_are_loaded():
+    limits = load_app_settings().limits
+    assert (limits.max_roles_per_user, limits.max_favourites_per_user, limits.max_users) == (20, 30, 6)
+
+
+VALID_LIMITS = {
+    "max_roles_per_user": 20,
+    "max_role_name_chars": 50,
+    "max_favourites_per_user": 30,
+    "max_skills_per_user": 40,
+    "max_skill_chars": 50,
+    "max_users": 6,
+}
+
+
+def settings_text(limits: dict, extra: str = "") -> str:
+    return "limits:\n" + "".join(f"  {name}: {value}\n" for name, value in limits.items()) + extra
+
+
+def test_a_complete_settings_file_loads(tmp_path):
+    """The baseline for the next test: only the one deliberate mistake may make a file fail."""
+    assert load_app_settings(write(tmp_path, settings_text(VALID_LIMITS))).limits.max_users == 6
+
+
+@pytest.mark.parametrize(
+    ("limits", "extra"),
+    [
+        ({**VALID_LIMITS, "max_roles_per_user": 0}, ""),  # limits must be above zero
+        ({key: value for key, value in VALID_LIMITS.items() if key != "max_users"}, ""),  # one limit missing
+        ({**VALID_LIMITS, "max_role_per_user": 20}, ""),  # a misspelt limit
+        (VALID_LIMITS, "limts:\n  max_users: 6\n"),  # a misspelt section
+    ],
+)
+def test_bad_settings_are_refused(tmp_path, limits, extra):
+    with pytest.raises(ValidationError):
+        load_app_settings(write(tmp_path, settings_text(limits, extra)))

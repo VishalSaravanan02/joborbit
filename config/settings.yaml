@@ -1,0 +1,11 @@
+# JobOrbit's tunable settings. Secrets never go here: they live in .env.
+# Sections are added in the step that first uses them.
+
+# Limits on what one person can enter in their profile, and on the number of people.
+limits:
+  max_roles_per_user: 20  # default and custom roles together
+  max_role_name_chars: 50  # longest custom role name
+  max_favourites_per_user: 30
+  max_skills_per_user: 40
+  max_skill_chars: 50
+  max_users: 6
