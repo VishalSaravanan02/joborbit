@@ -17,8 +17,10 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 
 # A matching term: words of letters or digits separated by single spaces, e.g. "data scientist".
 _TERM = re.compile(r"[^\W_]+(?: [^\W_]+)*")
-# A role slug: lower-case words joined by underscores, e.g. "data_scientist".
+# A slug (a fixed ID): lower-case words joined by underscores, e.g. "data_scientist".
 _SLUG = re.compile(r"[a-z0-9]+(?:_[a-z0-9]+)*")
+# A language code: two or three lower-case letters (ISO 639), e.g. "en" or "yue".
+_LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
 
 
 def _tidy_terms(values: list[str]) -> list[str]:
@@ -36,6 +38,21 @@ def _tidy_terms(values: list[str]) -> list[str]:
             raise ValueError(f"{term!r} is listed twice")
         tidied.append(term)
     return tidied
+
+
+def _check_slug(value: str) -> str:
+    if not _SLUG.fullmatch(value):
+        raise ValueError(f"slug {value!r} must be lower-case words joined by _, e.g. data_scientist")
+    return value
+
+
+def _find_repeats(items: list[BaseModel], fields: tuple[str, ...]) -> None:
+    """Refuse two items sharing a value in any of `fields` (capitals ignored)."""
+    for field in fields:
+        values = [getattr(item, field).lower() for item in items]
+        repeated = sorted({value for value in values if values.count(value) > 1})
+        if repeated:
+            raise ValueError(f"each entry needs its own {field}; repeated: {repeated}")
 
 
 # --- countries.yaml -----------------------------------------------------------
@@ -70,10 +87,8 @@ class RoleConfig(BaseModel):
 
     @field_validator("slug")
     @classmethod
-    def _check_slug(cls, value: str) -> str:
-        if not _SLUG.fullmatch(value):
-            raise ValueError(f"slug {value!r} must be lower-case words joined by _, e.g. data_scientist")
-        return value
+    def _valid_slug(cls, value: str) -> str:
+        return _check_slug(value)
 
     @field_validator("keywords", "exclude")
     @classmethod
@@ -95,11 +110,7 @@ class RolesFile(BaseModel):
 
     @model_validator(mode="after")
     def _no_repeats(self) -> "RolesFile":
-        for field in ("slug", "name"):
-            values = [getattr(role, field).lower() for role in self.roles]
-            repeated = sorted({value for value in values if values.count(value) > 1})
-            if repeated:
-                raise ValueError(f"each role needs its own {field}; repeated: {repeated}")
+        _find_repeats(self.roles, ("slug", "name"))
         return self
 
 
@@ -118,6 +129,60 @@ class SeniorityConfig(BaseModel):
     @classmethod
     def _check_terms(cls, values: list[str]) -> list[str]:
         return _tidy_terms(values)
+
+
+# --- industries.yaml ------------------------------------------------------------
+
+
+class IndustryConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    name: str = Field(min_length=1)
+
+    @field_validator("slug")
+    @classmethod
+    def _valid_slug(cls, value: str) -> str:
+        return _check_slug(value)
+
+
+class IndustriesFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    industries: list[IndustryConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _no_repeats(self) -> "IndustriesFile":
+        _find_repeats(self.industries, ("slug", "name"))
+        return self
+
+
+# --- languages.yaml -------------------------------------------------------------
+
+
+class LanguageConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    name: str = Field(min_length=1)
+
+    @field_validator("code")
+    @classmethod
+    def _valid_code(cls, value: str) -> str:
+        if not _LANGUAGE_CODE.fullmatch(value):
+            raise ValueError(f"language code {value!r} must be 2 or 3 lower-case letters, e.g. en or yue")
+        return value
+
+
+class LanguagesFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    languages: list[LanguageConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _no_repeats(self) -> "LanguagesFile":
+        _find_repeats(self.languages, ("code", "name"))
+        return self
 
 
 # --- Loading ------------------------------------------------------------------------
@@ -144,3 +209,15 @@ def load_roles(path: Path = CONFIG_DIR / "roles.yaml") -> list[RoleConfig]:
 def load_seniority(path: Path = CONFIG_DIR / "seniority.yaml") -> SeniorityConfig:
     """The senior-title and internship words from seniority.yaml."""
     return SeniorityConfig.model_validate(_read_yaml(path))
+
+
+@lru_cache
+def load_industries(path: Path = CONFIG_DIR / "industries.yaml") -> list[IndustryConfig]:
+    """Every industry in industries.yaml, in file order."""
+    return IndustriesFile.model_validate(_read_yaml(path)).industries
+
+
+@lru_cache
+def load_languages(path: Path = CONFIG_DIR / "languages.yaml") -> list[LanguageConfig]:
+    """Every language in languages.yaml, in file order."""
+    return LanguagesFile.model_validate(_read_yaml(path)).languages

@@ -1,0 +1,31 @@
+# Industries a company can belong to. The LLM picks one of these slugs for every job,
+# companies_seed.csv must use them, and users mark them as preferred or excluded.
+#
+# slug: a short fixed ID (lower case, words joined by _). Never rename one once it is in use.
+# name: what people see.
+
+industries:
+  - {slug: banking, name: Banking}
+  - {slug: fintech, name: Fintech}
+  - {slug: insurance, name: Insurance}
+  - {slug: trading, name: Trading and investment}
+  - {slug: consulting, name: Consulting}
+  - {slug: technology, name: Technology}
+  - {slug: ai, name: AI}
+  - {slug: ecommerce, name: E-commerce}
+  - {slug: retail, name: Retail}
+  - {slug: healthcare, name: Healthcare}
+  - {slug: pharma, name: Pharma and biotech}
+  - {slug: energy, name: Energy}
+  - {slug: telecoms, name: Telecoms}
+  - {slug: media, name: Media and entertainment}
+  - {slug: gaming, name: Gaming}
+  - {slug: education, name: Education}
+  - {slug: government, name: Government and public sector}
+  - {slug: travel, name: Travel and hospitality}
+  - {slug: transport_logistics, name: Transport and logistics}
+  - {slug: manufacturing, name: Manufacturing}
+  - {slug: automotive, name: Automotive}
+  - {slug: defence, name: Defence}
+  - {slug: gambling, name: Gambling}
+  - {slug: other, name: Other}

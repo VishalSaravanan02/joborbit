@@ -1,11 +1,11 @@
-"""Tests for loading roles.yaml and seniority.yaml, and for the rules they must follow."""
+"""Tests for loading the config files (roles, seniority, industries, languages) and their rules."""
 
 import re
 
 import pytest
 from pydantic import ValidationError
 
-from joborbit.config import load_roles, load_seniority
+from joborbit.config import load_countries, load_industries, load_languages, load_roles, load_seniority
 
 # The 15 default roles agreed in the build plan, in order.
 DEFAULT_SLUGS = [
@@ -51,6 +51,25 @@ def test_seniority_words_are_loaded():
     assert "senior" in seniority.drop_words and "head of" in seniority.drop_words
     assert "ii" not in seniority.drop_words  # level II is left for the LLM to judge
     assert "intern" in seniority.internship_words
+
+
+def test_the_industries_include_the_three_added_in_phase_2():
+    slugs = [industry.slug for industry in load_industries()]
+    assert len(slugs) == 24
+    assert {"ai", "travel", "trading", "ecommerce", "other"} <= set(slugs)
+
+
+def test_every_country_language_is_in_the_language_list():
+    """countries.yaml and languages.yaml must never drift apart."""
+    codes = {language.code for language in load_languages()}
+    for country in load_countries():
+        missing = set(country.local_languages) - codes
+        assert not missing, f"{country.code} uses languages missing from languages.yaml: {missing}"
+
+
+def test_english_and_spanish_are_offered():
+    names = {language.code: language.name for language in load_languages()}
+    assert names["en"] == "English" and names["es"] == "Spanish" and names["yue"] == "Cantonese"
 
 
 # --- The checks made when a file is loaded ----------------------------------------------
@@ -154,3 +173,34 @@ def test_seniority_words_are_tidied_and_checked(tmp_path):
     assert seniority.drop_words == ["senior", "head of"]
     with pytest.raises(ValidationError, match="letters, digits and spaces only"):
         load_seniority(write(tmp_path, "drop_words: [sr.]\ninternship_words: [intern]\n", "bad.yaml"))
+
+
+@pytest.mark.parametrize("slug", ["E-commerce", "transport and logistics", "ai!"])
+def test_badly_written_industry_slugs_are_refused(tmp_path, slug):
+    with pytest.raises(ValidationError, match="slug"):
+        load_industries(write(tmp_path, f'industries:\n  - {{slug: "{slug}", name: Something}}\n'))
+
+
+def test_two_industries_with_the_same_slug_are_refused(tmp_path):
+    text = "industries:\n  - {slug: banking, name: Banking}\n  - {slug: banking, name: Banks}\n"
+    with pytest.raises(ValidationError, match="repeated"):
+        load_industries(write(tmp_path, text))
+
+
+@pytest.mark.parametrize("code", ["EN", "e", "engl", "e1"])
+def test_badly_written_language_codes_are_refused(tmp_path, code):
+    with pytest.raises(ValidationError, match="language code"):
+        load_languages(write(tmp_path, f'languages:\n  - {{code: "{code}", name: English}}\n'))
+
+
+def test_two_languages_with_the_same_code_are_refused(tmp_path):
+    text = "languages:\n  - {code: zh, name: Mandarin Chinese}\n  - {code: zh, name: Chinese}\n"
+    with pytest.raises(ValidationError, match="repeated"):
+        load_languages(write(tmp_path, text))
+
+
+def test_unknown_industry_or_language_fields_are_refused(tmp_path):
+    with pytest.raises(ValidationError):
+        load_industries(write(tmp_path, "industries:\n  - {slug: ai, name: AI, label: x}\n", "industries.yaml"))
+    with pytest.raises(ValidationError):
+        load_languages(write(tmp_path, "languages:\n  - {code: en, nam: English}\n", "languages.yaml"))

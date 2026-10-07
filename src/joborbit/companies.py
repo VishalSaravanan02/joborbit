@@ -7,6 +7,7 @@ CSV columns:
     name, size_category, industry, countries, careers_url, ats_type, ats_token, notes
 
 - size_category: mnc, medium or startup
+- industry: a slug from config/industries.yaml, e.g. fintech (may be left blank)
 - countries: ISO codes separated by |, e.g. GB|IN|SG
 - ats_type / ats_token: may be left blank; scripts/detect_ats_bulk.py fills them in
 """
@@ -20,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from joborbit.config import load_industries
 from joborbit.db.models import Company
 from joborbit.fetchers.detect import Detection
 from joborbit.fetchers.registry import is_supported
@@ -55,6 +57,17 @@ class CompanyRow(BaseModel):
         if size not in SIZE_CATEGORIES:
             raise ValueError(f"size_category must be one of {sorted(SIZE_CATEGORIES)}, not {value!r}")
         return size
+
+    @field_validator("industry", mode="after")
+    @classmethod
+    def _check_industry(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        industry = value.lower()
+        known = [entry.slug for entry in load_industries()]
+        if industry not in known:
+            raise ValueError(f"industry {value!r} is not in config/industries.yaml (known: {', '.join(known)})")
+        return industry
 
     @field_validator("countries", mode="before")
     @classmethod

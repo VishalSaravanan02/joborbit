@@ -1,0 +1,36 @@
+# Languages offered on the profile form, and the codes the LLM uses for a job's required languages.
+# Codes are the standard ISO 639 ones: two letters where one exists, otherwise three (Cantonese: yue).
+# Every language named in countries.yaml (local_languages) must be listed here.
+
+languages:
+  - {code: en, name: English}
+  - {code: es, name: Spanish}
+  - {code: hi, name: Hindi}
+  - {code: ta, name: Tamil}
+  - {code: te, name: Telugu}
+  - {code: kn, name: Kannada}
+  - {code: ml, name: Malayalam}
+  - {code: mr, name: Marathi}
+  - {code: bn, name: Bengali}
+  - {code: gu, name: Gujarati}
+  - {code: pa, name: Punjabi}
+  - {code: ur, name: Urdu}
+  - {code: zh, name: Mandarin Chinese}
+  - {code: yue, name: Cantonese}
+  - {code: ms, name: Malay}
+  - {code: id, name: Indonesian}
+  - {code: tl, name: Filipino}
+  - {code: vi, name: Vietnamese}
+  - {code: th, name: Thai}
+  - {code: ja, name: Japanese}
+  - {code: ko, name: Korean}
+  - {code: ca, name: Catalan}
+  - {code: fr, name: French}
+  - {code: de, name: German}
+  - {code: it, name: Italian}
+  - {code: pt, name: Portuguese}
+  - {code: nl, name: Dutch}
+  - {code: pl, name: Polish}
+  - {code: ru, name: Russian}
+  - {code: tr, name: Turkish}
+  - {code: ar, name: Arabic}

@@ -1,5 +1,7 @@
 """Tests for reading the company CSV and copying it into the database."""
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -46,6 +48,26 @@ def test_reads_and_tidies_rows(tmp_path):
     assert row.countries == ["GB", "ES"]
     assert row.ats_type == "greenhouse"
     assert row.notes is None  # blank becomes None
+
+
+def test_the_real_company_list_is_valid():
+    """data/companies_seed.csv must always pass every check, e.g. after a hand edit."""
+    rows = read_company_csv(Path(__file__).parents[1] / "data" / "companies_seed.csv")
+    assert len(rows) >= 50
+
+
+def test_an_unknown_industry_is_rejected(tmp_path):
+    path = write_csv(tmp_path, "Acme,startup,fintek,GB,,,,\n")
+    with pytest.raises(ValueError) as error:
+        read_company_csv(path)
+    assert "line 2" in str(error.value)
+    assert "industry 'fintek' is not in config/industries.yaml" in str(error.value)
+
+
+def test_industry_capitals_are_tidied_and_blank_is_allowed(tmp_path):
+    first, second = read_company_csv(write_csv(tmp_path, "Acme,startup, AI ,GB,,,,\nBeta,startup,,GB,,,,\n"))
+    assert first.industry == "ai"
+    assert second.industry is None
 
 
 def test_blank_ats_columns_are_allowed(tmp_path):
