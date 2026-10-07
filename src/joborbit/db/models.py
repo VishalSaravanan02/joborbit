@@ -1,14 +1,17 @@
 """Database tables for JobOrbit, written as Python classes (SQLAlchemy ORM).
 
-Each class is one table, and each attribute is one column. Phase 1 needs
-three tables for fetching jobs; the rest are added in Phase 2.
-All times are stored in UTC.
+Each class is one table, and each attribute is one column. Tables are added
+in the step that first needs them. All times are stored in UTC.
+
+Shared tables (one copy for everyone): companies, jobs, fetch_runs.
+Personal tables (one row per user): users, user_profiles, user_company_prefs.
 """
 
 from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -56,7 +59,7 @@ class Company(Base):
     ats_type: Mapped[str | None] = mapped_column(String(30))  # e.g. "greenhouse"
     ats_token: Mapped[str | None] = mapped_column(String(200))  # the company's ID on that ATS
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    added_by_user_id: Mapped[int | None] = mapped_column(Integer)  # linked to users in Phase 2
+    added_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     baseline_done: Mapped[bool] = mapped_column(Boolean, default=False)
     last_fetch_ok_at: Mapped[datetime | None] = mapped_column(DateTime)
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
@@ -117,3 +120,66 @@ class FetchRun(Base):
     jobs_returned: Mapped[int | None] = mapped_column(Integer)
     new_jobs: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class User(Base):
+    """A person who receives alerts. Their Telegram ID is the only identifier we store."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True)  # can exceed 32 bits
+    display_name: Mapped[str] = mapped_column(String(100))  # Telegram first name
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)  # /pause sets this
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    # Deleting a user deletes their profile and company choices with them.
+    profile: Mapped["UserProfile | None"] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+    company_prefs: Mapped[list["UserCompanyPref"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class UserProfile(Base):
+    """What one user wants: the answers from the profile form (or my_profile.yaml for now).
+
+    The rules for valid values (limits, known codes...) live in joborbit/profiles.py.
+    """
+
+    __tablename__ = "user_profiles"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    roles: Mapped[list[str]] = mapped_column(JSON, default=list)  # default role slugs, e.g. ["data_scientist"]
+    custom_roles: Mapped[list[str]] = mapped_column(JSON, default=list)  # role names the user typed
+    countries: Mapped[list[str]] = mapped_column(JSON, default=list)  # ranked: first = most wanted
+    languages: Mapped[list[str]] = mapped_column(JSON, default=list)  # e.g. ["en", "es"]
+    preferred_industries: Mapped[list[str]] = mapped_column(JSON, default=list)
+    excluded_industries: Mapped[list[str]] = mapped_column(JSON, default=list)
+    skills: Mapped[list[str]] = mapped_column(JSON, default=list)
+    highest_degree: Mapped[str | None] = mapped_column(String(20))  # "bachelor", "master" or "phd"
+    include_internships: Mapped[bool] = mapped_column(Boolean, default=False)
+    alert_style: Mapped[str] = mapped_column(String(20), default="balanced")  # "fewer", "balanced", "more"
+    transfer_boost: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Personal scoring weights, set only by the weekly tuning. Empty = use the current defaults.
+    weights: Mapped[dict[str, float] | None] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="profile")
+
+
+class UserCompanyPref(Base):
+    """A company one user marked as a favourite or excluded."""
+
+    __tablename__ = "user_company_prefs"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20))  # "favourite" or "excluded"
+    never_miss: Mapped[bool] = mapped_column(Boolean, default=False)  # favourites only
+
+    user: Mapped[User] = relationship(back_populates="company_prefs")
+    company: Mapped[Company] = relationship()

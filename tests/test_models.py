@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from joborbit.db.models import Base, Company, FetchRun, Job
+from joborbit.db.models import Base, Company, FetchRun, Job, User, UserCompanyPref, UserProfile
 from joborbit.db.session import create_sqlite_engine
 
 
@@ -136,3 +136,113 @@ def test_deleting_the_original_keeps_the_duplicate_but_clears_the_link(session):
     [remaining] = session.scalars(select(Job)).all()
     assert remaining.external_id == "200"
     assert remaining.duplicate_of_id is None
+
+
+# --- Users, profiles and company choices ---------------------------------------------
+
+
+def make_user(telegram_id: int = 123456789, **overrides) -> User:
+    return User(telegram_id=telegram_id, display_name="Vishal", **overrides)
+
+
+def test_a_user_and_profile_save_with_sensible_defaults(session):
+    user = make_user()
+    user.profile = UserProfile(roles=["data_scientist"], countries=["GB"], languages=["en", "es"])
+    session.add(user)
+    session.commit()
+
+    assert (user.is_admin, user.is_active, user.paused) == (False, True, False)
+    profile = session.get(UserProfile, user.id)
+    assert profile.roles == ["data_scientist"] and profile.custom_roles == []
+    assert profile.alert_style == "balanced"
+    assert profile.include_internships is False and profile.transfer_boost is True
+    assert profile.weights is None  # empty means "use the current default weights"
+    assert profile.updated_at is not None
+
+
+def test_telegram_ids_are_unique(session):
+    session.add_all([make_user(1), make_user(1)])
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_large_telegram_ids_are_stored_exactly(session):
+    session.add(make_user(9_876_543_210_123))  # bigger than a 32-bit number
+    session.commit()
+    session.expire_all()
+    assert session.scalars(select(User.telegram_id)).one() == 9_876_543_210_123
+
+
+def test_a_user_has_at_most_one_profile(session):
+    user = make_user()
+    session.add(user)
+    session.flush()
+    session.add_all([UserProfile(user_id=user.id), UserProfile(user_id=user.id)])
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_a_user_can_mark_a_company_only_once(session):
+    user, company = make_user(), make_company()
+    session.add_all([user, company])
+    session.flush()
+    session.add(UserCompanyPref(user_id=user.id, company_id=company.id, kind="favourite"))
+    session.flush()
+    session.add(UserCompanyPref(user_id=user.id, company_id=company.id, kind="excluded"))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_deleting_a_user_deletes_their_profile_and_company_choices_only(session):
+    user, other, company = make_user(1), make_user(2), make_company()
+    user.profile = UserProfile(countries=["GB"])
+    session.add_all([user, other, company])
+    session.flush()
+    session.add_all(
+        [
+            UserCompanyPref(user_id=user.id, company_id=company.id, kind="favourite", never_miss=True),
+            UserCompanyPref(user_id=other.id, company_id=company.id, kind="excluded"),
+        ]
+    )
+    session.commit()
+
+    session.delete(user)
+    session.commit()
+
+    assert session.scalars(select(UserProfile)).all() == []
+    [remaining] = session.scalars(select(UserCompanyPref)).all()
+    assert remaining.user_id == other.id
+    assert session.scalars(select(Company)).one().name == "Example Ltd"  # companies are shared: kept
+
+
+def test_deleting_a_company_removes_users_choices_about_it(session):
+    """Done by the database itself (ON DELETE CASCADE), e.g. if a company row is ever removed."""
+    user, company = make_user(), make_company()
+    session.add_all([user, company])
+    session.flush()
+    session.add(UserCompanyPref(user_id=user.id, company_id=company.id, kind="excluded"))
+    session.commit()
+
+    session.execute(Company.__table__.delete())
+    session.commit()
+    assert session.scalars(select(UserCompanyPref)).all() == []
+
+
+def test_a_company_added_by_a_user_survives_the_user_being_deleted(session):
+    user = make_user()
+    session.add(user)
+    session.flush()
+    company = make_company(added_by_user_id=user.id)
+    session.add(company)
+    session.commit()
+
+    session.execute(User.__table__.delete())  # straight in the database: tests ON DELETE SET NULL
+    session.commit()
+    session.expire_all()
+    assert session.scalars(select(Company)).one().added_by_user_id is None
+
+
+def test_added_by_must_be_a_real_user(session):
+    session.add(make_company(added_by_user_id=999))
+    with pytest.raises(IntegrityError):
+        session.commit()
