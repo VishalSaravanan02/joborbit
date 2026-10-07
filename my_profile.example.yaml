@@ -31,7 +31,7 @@ profile:
 
   highest_degree: master  # bachelor, master or phd (or leave it out)
   include_internships: false
-  alert_style: balanced  # fresh (only strong matches), balanced, or more
+  alert_style: balanced  # fewer (only strong matches), balanced, or more
   transfer_boost: true  # score a little higher at companies in several of your countries
 
   # Companies, by name as in data/companies_seed.csv (capitals and punctuation don't matter).
