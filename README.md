@@ -7,14 +7,14 @@ A personal job-alert tool that watches company careers pages and sends instant T
 ## How it works
 
 1. Every 20 minutes, JobOrbit checks the public job feeds of hundreds of companies.
-2. New jobs pass through cheap keyword filters, then a small LLM (Claude Haiku) reads each one and extracts the country, seniority, required experience, languages and skills.
+2. New jobs pass through cheap keyword filters, then a small LLM (OpenAI to start; Anthropic can be switched on with one setting) reads each one and extracts the country, seniority, required experience, languages and skills.
 3. Each user's own profile scores every job out of 100.
 4. Strong matches are pushed to Telegram instantly; medium matches arrive in a daily digest.
 5. Tapping "Relevant" saves a job to the dashboard, and the scoring learns from that feedback each week.
 
 ## Tech stack
 
-Python 3.12 · httpx · SQLAlchemy + SQLite · Alembic · Anthropic API · python-telegram-bot · FastAPI + Jinja2 + HTMX · APScheduler · pytest
+Python 3.12 · httpx · SQLAlchemy + SQLite · Alembic · OpenAI API · python-telegram-bot · FastAPI + Jinja2 + HTMX · APScheduler · pytest
 
 ## Local setup
 

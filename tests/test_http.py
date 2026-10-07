@@ -36,6 +36,7 @@ async def test_get_json_returns_parsed_data():
     async with make_client() as client:
         assert await client.get_json(URL) == {"jobs": [{"id": 1}]}
 
+
 @respx.mock
 async def test_compressed_responses_are_unpacked_once():
     """Real sites send gzip-compressed data; it must be decompressed exactly once."""

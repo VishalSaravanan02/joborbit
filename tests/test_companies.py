@@ -1,7 +1,7 @@
 """Tests for reading the company CSV and copying it into the database."""
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from joborbit.companies import (
@@ -13,6 +13,7 @@ from joborbit.companies import (
     write_company_csv,
 )
 from joborbit.db.models import Base, Company
+from joborbit.db.session import create_sqlite_engine
 from joborbit.fetchers.detect import Detection
 
 HEADER = "name,size_category,industry,countries,careers_url,ats_type,ats_token,notes\n"
@@ -20,7 +21,7 @@ HEADER = "name,size_category,industry,countries,careers_url,ats_type,ats_token,n
 
 @pytest.fixture
 def session():
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_sqlite_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as s:
         yield s
@@ -89,7 +90,6 @@ def test_a_wrong_header_is_rejected(tmp_path):
     path.write_text(HEADER.replace("countries", "contries") + "Acme,startup,technology,GB,,,,\n", encoding="utf-8")
     with pytest.raises(ValueError, match="must be exactly"):
         read_company_csv(path)
-
 
 
 def test_duplicate_companies_are_rejected(tmp_path):
