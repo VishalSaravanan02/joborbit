@@ -13,9 +13,10 @@ If the text names a specific place that isn't one of our countries
 (e.g. "Washington, D.C."), countries is empty and ambiguous is False,
 so the job can be safely ignored.
 
-Known limitation: a city name shared with another country ("Cambridge, MA" in
-the USA) is matched to our country. The LLM step later reads the full job and
-corrects this, so the cost is one extra LLM call, not a wrong alert.
+Known limitation: a city name shared with another country is matched to our country,
+unless the place is listed in EXCLUDED_PLACES (as "Cambridge, MA" is). The LLM step
+later reads the full job and corrects this, so the cost is one extra LLM call, not a
+wrong alert.
 """
 
 import re
@@ -36,9 +37,16 @@ VAGUE_WORDS = frozenset(
 )
 
 
-# Place names containing one of our aliases that belong to another country.
-# They are removed before matching, so "New South Wales" (Australia) isn't read as Wales.
-EXCLUDED_PHRASES = ("new south wales",)
+# Places whose names contain one of our aliases or cities but belong to another country:
+# "New South Wales" (Australia) isn't Wales, and "Cambridge, MA" (USA) isn't Cambridge, UK.
+# Before matching, each is replaced by ELSEWHERE, a word meaning "a specific place that isn't
+# ours". Replacing them with nothing would be wrong: "New South Wales" alone would become
+# blank, and blank counts as vague, which would send the job on to the LLM.
+EXCLUDED_PLACES = (
+    re.compile(r"\bnew south wales\b"),
+    re.compile(r"\bcambridge,?\s+(?:ma|mass|massachusetts)\b"),
+)
+ELSEWHERE = " elsewhere "
 
 
 @dataclass(frozen=True)
@@ -75,8 +83,8 @@ def parse_location(text: str | None) -> LocationResult:
         return LocationResult(ambiguous=True)
 
     lowered = text.lower()
-    for phrase in EXCLUDED_PHRASES:
-        lowered = lowered.replace(phrase, " ")
+    for place in EXCLUDED_PLACES:
+        lowered = place.sub(ELSEWHERE, lowered)
     found: list[str] = []
     for pattern in _patterns():
         if pattern.code not in found and pattern.regex.search(lowered):

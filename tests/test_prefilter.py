@@ -87,7 +87,7 @@ def test_fuzzy_matching_compares_word_by_word(title, keyword, expected):
         ("Technology Graduate Scheme", "roles: tech_graduate_scheme"),
         ("Analytics Engineer (dbt)", "roles: analytics_engineer"),
         ("Data Engineer II", "roles: data_engineer"),  # level II is left for the LLM
-        ("Research Scientist, Machine Learning", "roles: applied_scientist"),
+        ("Research Scientist, Machine Learning", "roles: ml_engineer, applied_scientist"),
         ("Quantitative Researcher - New Grad", "roles: quant_analyst"),
         ("Data Scientst", "roles: data_scientist (fuzzy)"),
     ],

@@ -56,6 +56,11 @@ def test_vague_locations_are_ambiguous(text):
         # Other places that aren't our countries
         "Remote - US",
         "New York, NY",  # must not match the UK city of York
+        "New South Wales",  # on its own too: a specific place, not a vague one
+        "Cambridge, MA",  # Cambridge, Massachusetts is not Cambridge, UK
+        "Cambridge MA",
+        "Cambridge, Massachusetts, United States",
+        "Cambridge, Mass.",
         "Sydney, New South Wales",  # must not match Wales
         "Berlin, Germany",
         "Toronto, Canada",
@@ -83,3 +88,9 @@ def test_every_country_in_the_config_is_loaded():
 
 def test_only_the_uk_is_switched_on_for_now():
     assert [country.code for country in load_countries() if country.enabled] == ["GB"]
+
+
+@pytest.mark.parametrize("text", ["Cambridge", "Cambridge, UK", "Cambridge, Manchester", "Cambridge, MA / London"])
+def test_the_uk_cambridge_is_still_found(text):
+    """Only "Cambridge" followed by MA or Massachusetts is excluded, so "Cambridge, Manchester" stays UK."""
+    assert parse_location(text).countries == ["GB"]

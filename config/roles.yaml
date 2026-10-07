@@ -16,7 +16,7 @@ roles:
 
   - slug: ml_engineer
     name: Machine Learning Engineer
-    keywords: [machine learning engineer, ml engineer, mlops engineer, machine learning developer]
+    keywords: [machine learning engineer, ml engineer, mlops engineer, machine learning developer, machine learning]
     exclude: []
 
   - slug: ai_engineer
@@ -36,7 +36,7 @@ roles:
 
   - slug: data_analyst
     name: Data Analyst
-    keywords: [data analyst, data analytics, insight analyst, insights analyst, reporting analyst]
+    keywords: [data analyst, data analytics, insight analyst, insights analyst, reporting analyst, analytics analyst]
     exclude: []
 
   - slug: business_analyst
@@ -61,7 +61,7 @@ roles:
 
   - slug: data_engineer
     name: Data Engineer
-    keywords: [data engineer, data engineering, etl developer]
+    keywords: [data engineer, data engineering, etl developer, data platform engineer]
     exclude: []
 
   - slug: credit_risk_analyst
@@ -71,7 +71,7 @@ roles:
 
   - slug: quant_analyst
     name: Quantitative Analyst
-    keywords: [quantitative analyst, quant analyst, quantitative researcher, quant researcher]
+    keywords: [quantitative analyst, quant analyst, quantitative researcher, quant researcher, quant developer, quantitative developer]
     exclude: []
 
   - slug: data_ai_consultant
@@ -81,5 +81,5 @@ roles:
 
   - slug: tech_graduate_scheme
     name: Technology / Data Graduate Scheme
-    keywords: [graduate programme, graduate program, graduate scheme, technology graduate, data graduate, analytics graduate, early careers programme, early careers program]
+    keywords: [graduate programme, graduate program, graduate scheme, technology graduate, data graduate, analytics graduate, early careers programme, early careers program, graduate analyst, fellowship, fellows programme, fellows program]
     exclude: [sales, marketing, hr, human resources, legal, recruitment, customer service]  # non-data schemes
