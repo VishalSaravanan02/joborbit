@@ -1,0 +1,42 @@
+# The format for your JobOrbit profile, with made-up example answers.
+#
+# To use it: copy this file to my_profile.yaml (which Git ignores, so your answers stay
+# private), change the answers, then run:  python scripts/seed_my_profile.py
+# Run it again after every change: the database is updated to match the file exactly.
+# Your Telegram ID is not in this file: it comes from ADMIN_TELEGRAM_ID in .env.
+
+display_name: Alex  # your first name, as it will appear in messages
+
+profile:
+  # Required: at least one country, ranked (first = most wanted). Only switched-on
+  # countries can be chosen (see "enabled" in config/countries.yaml).
+  countries: [GB]
+
+  # Roles: slugs from config/roles.yaml. Leave "roles" out to get all 15 default roles,
+  # or list only the ones you want, e.g. [data_scientist, data_analyst].
+  # custom_roles: any other job titles, written as you'd say them (20 roles in total at most).
+  custom_roles: [Insights Analyst]
+
+  # Languages you can work in: codes from config/languages.yaml. Jobs that require any
+  # other language are dropped.
+  languages: [en, es]
+
+  # Industries: slugs from config/industries.yaml. Preferred ones score a little higher;
+  # excluded ones are never shown.
+  preferred_industries: [ai, fintech]
+  excluded_industries: [gambling]
+
+  # Skills, as you'd write them on a CV (at most 40). Matched against each job's skills.
+  skills: [Python, SQL, machine learning, statistics, Tableau]
+
+  highest_degree: master  # bachelor, master or phd (or leave it out)
+  include_internships: false
+  alert_style: balanced  # fresh (only strong matches), balanced, or more
+  transfer_boost: true  # score a little higher at companies in several of your countries
+
+  # Companies, by name as in data/companies_seed.csv (capitals and punctuation don't matter).
+  # never_miss: every suitable job there is sent at once, even if its role isn't one of yours.
+  favourite_companies:
+    - {name: Monzo, never_miss: true}
+    - {name: Cloudflare}
+  excluded_companies: []

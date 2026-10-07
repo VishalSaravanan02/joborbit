@@ -2,9 +2,13 @@
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from joborbit.config import load_app_settings, load_roles
-from joborbit.profiles import FavouriteCompany, ProfileInput
+from joborbit.db.models import Base, Company, User, UserCompanyPref
+from joborbit.db.session import create_sqlite_engine
+from joborbit.profiles import FavouriteCompany, ProfileInput, UnknownCompaniesError, save_profile
 
 LIMITS = load_app_settings().limits
 
@@ -182,3 +186,98 @@ def test_empty_company_names_are_refused():
     with pytest.raises(ValidationError):
         profile(favourite_companies=[{"name": "  "}])
     refused("empty", excluded_companies=["  "])
+
+
+# --- Saving a profile --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def session():
+    """An empty in-memory database with three companies and one user without a profile."""
+    engine = create_sqlite_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as s:
+        for name in ("Monzo", "Checkout.com", "Big Bank"):
+            s.add(Company(name=name, slug=name.lower().replace(".", "-").replace(" ", "-"), size_category="medium"))
+        s.add(User(telegram_id=1, display_name="Vishal"))
+        s.commit()
+        yield s
+
+
+def user(session) -> User:
+    return session.scalars(select(User)).one()
+
+
+def choices(session) -> dict[str, tuple[str, bool]]:
+    rows = session.scalars(select(UserCompanyPref))
+    return {pref.company.name: (pref.kind, pref.never_miss) for pref in rows}
+
+
+def test_saving_creates_the_profile_and_company_choices(session):
+    save_profile(
+        session,
+        user(session),
+        profile(
+            languages=["en", "es"],
+            favourite_companies=[{"name": "monzo", "never_miss": True}],
+            excluded_companies=["Big Bank"],
+        ),
+    )
+    session.commit()
+
+    stored = user(session).profile
+    assert stored.countries == ["GB"] and stored.languages == ["en", "es"] and len(stored.roles) == 15
+    assert stored.weights is None
+    assert choices(session) == {"Monzo": ("favourite", True), "Big Bank": ("excluded", False)}
+
+
+def test_saving_again_makes_the_database_match_the_new_profile_exactly(session):
+    first = profile(
+        favourite_companies=[{"name": "Monzo", "never_miss": True}, {"name": "Checkout.com"}], skills=["Python"]
+    )
+    save_profile(session, user(session), first)
+    session.commit()
+
+    second = profile(
+        favourite_companies=[{"name": "Monzo", "never_miss": False}],  # never miss switched off
+        excluded_companies=["checkout com"],  # was a favourite, now excluded
+        skills=[],  # emptied
+        alert_style="more",
+    )
+    save_profile(session, user(session), second)
+    session.commit()
+
+    assert choices(session) == {"Monzo": ("favourite", False), "Checkout.com": ("excluded", False)}
+    assert user(session).profile.skills == [] and user(session).profile.alert_style == "more"
+
+
+def test_removed_company_choices_are_deleted(session):
+    save_profile(session, user(session), profile(favourite_companies=[{"name": "Monzo"}]))
+    session.commit()
+    save_profile(session, user(session), profile())
+    session.commit()
+    assert choices(session) == {}
+
+
+def test_personal_weights_are_left_alone(session):
+    save_profile(session, user(session), profile())
+    user(session).profile.weights = {"role_fit": 40}  # as if the weekly tuning had run
+    session.commit()
+    save_profile(session, user(session), profile(alert_style="fewer"))
+    session.commit()
+    assert user(session).profile.weights == {"role_fit": 40}
+
+
+def test_unknown_companies_change_nothing(session):
+    save_profile(session, user(session), profile(favourite_companies=[{"name": "Monzo"}], skills=["SQL"]))
+    session.commit()
+
+    with pytest.raises(UnknownCompaniesError) as error:
+        save_profile(
+            session,
+            user(session),
+            profile(favourite_companies=[{"name": "Monzo"}, {"name": "Monzoo"}], excluded_companies=["Nobody Ltd"]),
+        )
+    assert error.value.names == ["Monzoo", "Nobody Ltd"]
+    assert user(session).profile.skills == ["SQL"]  # the earlier profile is untouched
+    assert choices(session) == {"Monzo": ("favourite", False)}

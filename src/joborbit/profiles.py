@@ -5,17 +5,20 @@ the dashboard's profile form uses exactly the same rules, so the two can never d
 
 ProfileInput only checks what was entered: known roles, countries, languages and
 industries, the limits in config/settings.yaml, and choices that contradict each other.
-Companies are given by name here; looking them up in the database happens when the
-profile is saved.
+Companies are given by name here; save_profile looks them up in the database and stores
+the profile, so the form and the script also save in exactly the same way.
 """
 
 import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from joborbit.companies import slugify
 from joborbit.config import load_app_settings, load_countries, load_industries, load_languages, load_roles
+from joborbit.db.models import Company, User, UserCompanyPref, UserProfile
 
 
 def _tidy(value: object) -> str:
@@ -184,3 +187,47 @@ class ProfileInput(BaseModel):
         if both:
             raise ValueError(f"a company can't be both a favourite and excluded: {', '.join(both)}")
         return self
+
+
+# --- Saving -----------------------------------------------------------------------------
+
+
+class UnknownCompaniesError(ValueError):
+    """Some company names in a profile don't match any company we track."""
+
+    def __init__(self, names: list[str]) -> None:
+        super().__init__(f"not tracked (check the spelling, or add them to the company list first): {', '.join(names)}")
+        self.names = names
+
+
+def save_profile(session: Session, user: User, profile: ProfileInput) -> None:
+    """Make `user`'s stored profile and company choices match `profile` exactly.
+
+    Companies are matched by slug, so capitals and punctuation don't matter ("checkout com"
+    finds Checkout.com). If any name is unknown, UnknownCompaniesError is raised before
+    anything is changed. Saving never commits: the caller decides when to save.
+    Personal scoring weights are left alone: only the weekly tuning sets them.
+    """
+    companies = {company.slug: company for company in session.scalars(select(Company))}
+    wanted = [(company.name, "favourite", company.never_miss) for company in profile.favourite_companies]
+    wanted += [(name, "excluded", False) for name in profile.excluded_companies]
+    unknown = [name for name, _, _ in wanted if slugify(name) not in companies]
+    if unknown:
+        raise UnknownCompaniesError(unknown)
+
+    fields = profile.model_dump(exclude={"favourite_companies", "excluded_companies"})
+    if user.profile is None:
+        user.profile = UserProfile(**fields)
+    else:
+        for name, value in fields.items():
+            setattr(user.profile, name, value)
+
+    # Update choices that are still wanted, add new ones, and drop the rest.
+    existing = {pref.company_id: pref for pref in user.company_prefs}
+    choices = []
+    for name, kind, never_miss in wanted:
+        company = companies[slugify(name)]
+        pref = existing.get(company.id) or UserCompanyPref(company=company)
+        pref.kind, pref.never_miss = kind, never_miss
+        choices.append(pref)
+    user.company_prefs = choices
