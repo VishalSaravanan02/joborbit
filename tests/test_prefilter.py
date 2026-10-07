@@ -5,20 +5,29 @@ check that our keyword lists behave as intended on realistic titles.
 """
 
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from joborbit.config import load_roles
+from joborbit.db.models import Base, Company, Job, User, UserProfile
+from joborbit.db.session import create_sqlite_engine
 from joborbit.fetchers.ashby import AshbyFetcher
 from joborbit.fetchers.greenhouse import GreenhouseFetcher
 from joborbit.fetchers.lever import LeverFetcher
 from joborbit.pipeline.prefilter import (
+    MAX_REASON_CHARS,
     PrefilterRules,
     RoleMatch,
     check_job,
     contains,
     fuzzy_contains,
+    reason_kind,
+    rules_for_active_users,
+    run_prefilter,
     words,
 )
 
@@ -206,3 +215,124 @@ def test_the_real_saved_jobs_get_the_right_verdicts():
         "country: not one we cover",  # United States / New York / San Francisco
         "country: not one we cover",  # San Francisco / United States / New York
     ]
+
+
+def test_custom_roles_are_marked_as_custom():
+    rules = PrefilterRules.build({"data_analyst"}, {"Pricing Analyst"}, allow_internships=False)
+    assert [(rule.role, rule.custom) for rule in rules.roles] == [("data_analyst", False), ("Pricing Analyst", True)]
+
+
+def test_reason_kinds_are_the_part_before_the_colon():
+    assert reason_kind("senior title: lead") == "senior title"
+    assert reason_kind("no matching role") == "no matching role"
+
+
+# --- Running on the database ---------------------------------------------------------------------
+
+START = datetime(2026, 10, 1, 9, 0)
+
+
+@pytest.fixture
+def session():
+    """An empty in-memory database with one company."""
+    engine = create_sqlite_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as s:
+        s.add(Company(name="Acme", slug="acme", size_category="startup"))
+        s.commit()
+        yield s
+
+
+def add_user(session, telegram_id: int, roles: list[str], custom: list[str] = (), **user_fields) -> None:
+    user = User(telegram_id=telegram_id, display_name="Someone", **user_fields)
+    user.profile = UserProfile(roles=list(roles), custom_roles=list(custom), countries=["GB"])
+    session.add(user)
+    session.commit()
+
+
+def add_job(session, title: str, location: str = LONDON, minutes: int = 0, **job_fields) -> Job:
+    job = Job(
+        company_id=1,
+        ats_type="greenhouse",
+        external_id=title + str(minutes),
+        url="https://example.com",
+        title=title,
+        location_raw=location,
+        first_seen_at=START + timedelta(minutes=minutes),
+        **job_fields,
+    )
+    session.add(job)
+    session.commit()
+    return job
+
+
+def test_pending_jobs_get_a_verdict_and_a_reason(session):
+    add_user(session, 1, ["data_scientist"])
+    good = add_job(session, "Graduate Data Scientist")
+    senior = add_job(session, "Senior Data Scientist")
+    abroad = add_job(session, "Data Scientist", "Berlin, Germany")
+
+    run = run_prefilter(session)
+    session.commit()
+
+    assert (good.prefilter_status, good.prefilter_reason) == ("passed", "roles: data_scientist")
+    assert (senior.prefilter_status, senior.prefilter_reason) == ("rejected", "senior title: senior")
+    assert (abroad.prefilter_status, abroad.prefilter_reason) == ("rejected", "country: not one we cover")
+    assert run.passed_job_ids == [good.id]
+    assert run.rejected == {"senior title": 1, "country": 1}
+    assert run.checked == 3
+
+
+def test_skipped_decided_and_closed_jobs_are_left_alone(session):
+    add_user(session, 1, ["data_scientist"])
+    baseline = add_job(session, "Data Scientist", prefilter_status="skipped", prefilter_reason="baseline")
+    decided = add_job(session, "Data Scientist", minutes=1, prefilter_status="rejected", prefilter_reason="old")
+    closed = add_job(session, "Data Scientist", minutes=2, closed_at=START)
+
+    run = run_prefilter(session)
+
+    assert run.checked == 0
+    assert (baseline.prefilter_status, baseline.prefilter_reason) == ("skipped", "baseline")
+    assert (decided.prefilter_status, decided.prefilter_reason) == ("rejected", "old")
+    assert closed.prefilter_status == "pending"
+
+
+def test_newest_jobs_are_decided_first(session):
+    add_user(session, 1, ["data_scientist"])
+    older = add_job(session, "Data Scientist", minutes=0)
+    newer = add_job(session, "Data Scientist", minutes=30)
+    assert run_prefilter(session).passed_job_ids == [newer.id, older.id]
+
+
+def test_every_active_users_roles_count_including_paused_users(session):
+    add_user(session, 1, ["data_scientist"])
+    add_user(session, 2, [], custom=["Pricing Analyst"], paused=True)
+    add_user(session, 3, ["data_engineer"], is_active=False)  # inactive: their roles don't count
+
+    rules = rules_for_active_users(session)
+
+    assert sorted(rule.role for rule in rules.roles) == ["Pricing Analyst", "data_scientist"]
+
+
+def test_internships_are_allowed_if_any_active_user_wants_them(session):
+    add_user(session, 1, ["data_scientist"])
+    assert rules_for_active_users(session).allow_internships is False
+    session.scalars(select(UserProfile).where(UserProfile.user_id == 1)).one().include_internships = True
+    add_user(session, 2, ["data_scientist"])  # added after: one user wanting them is enough, in any order
+    assert rules_for_active_users(session).allow_internships is True
+
+
+def test_with_no_users_every_pending_job_is_rejected(session):
+    job = add_job(session, "Data Scientist")
+    run_prefilter(session)
+    assert (job.prefilter_status, job.prefilter_reason) == ("rejected", "no active users")
+
+
+def test_very_long_reasons_are_shortened_to_fit(session):
+    many = [f"Data Role {number}" for number in range(40)]
+    add_user(session, 1, [], custom=many)
+    job = add_job(session, " ".join(many))  # matches all 40 custom roles
+    run_prefilter(session)
+    session.commit()
+    assert job.prefilter_status == "passed"
+    assert len(job.prefilter_reason) == MAX_REASON_CHARS

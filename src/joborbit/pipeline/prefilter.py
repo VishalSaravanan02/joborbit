@@ -9,6 +9,8 @@ A job passes only if every check passes, in this order (cheapest and clearest fi
 4. Role: the title matches a keyword of a role that at least one user has.
 
 Every decision comes with a short reason, stored with the job so it can be audited.
+check_job decides for one job and never touches the database; run_prefilter applies it to
+every pending job, using the roles of every active user.
 
 How titles are matched. Titles and keywords are both reduced to lower-case words without
 punctuation, so "Data-Scientist (London)" is "data scientist london". A keyword matches
@@ -21,11 +23,15 @@ ever match exactly, so "lead" never drops "Leading".
 """
 
 import re
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from joborbit.config import load_countries, load_roles, load_seniority
+from joborbit.db.models import Job, User, UserProfile
 from joborbit.pipeline.location import parse_location
 
 FUZZY_WORD_SCORE = 85  # out of 100: how similar each word must be for a fuzzy match
@@ -69,6 +75,7 @@ class RoleRule:
     role: str  # the slug, e.g. "data_scientist", or the custom role's name, e.g. "Insights Analyst"
     keywords: tuple[Words, ...]
     exclude: tuple[Words, ...] = ()
+    custom: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,7 +121,7 @@ class PrefilterRules:
             for role in load_roles()
             if role.slug in role_slugs
         ]
-        rules += [RoleRule(name, (words(name),)) for name in sorted(custom_roles) if words(name)]
+        rules += [RoleRule(name, (words(name),), custom=True) for name in sorted(custom_roles) if words(name)]
         seniority = load_seniority()
         return cls(
             enabled_countries=frozenset(country.code for country in load_countries() if country.enabled),
@@ -164,3 +171,64 @@ def check_job(title: str, location_raw: str | None, rules: PrefilterRules) -> De
         return Decision(False, "no matching role")
     described = ", ".join(match.role if match.exact else f"{match.role} (fuzzy)" for match in roles)
     return Decision(True, f"roles: {described}", roles)
+
+
+def reason_kind(reason: str) -> str:
+    """The kind of a reason, for counting: "senior title: lead" -> "senior title"."""
+    return reason.split(":", 1)[0]
+
+
+# --- Running it on the database -------------------------------------------------------------
+
+PASSED, REJECTED, PENDING = "passed", "rejected", "pending"
+MAX_REASON_CHARS = 200  # the size of jobs.prefilter_reason
+
+
+def rules_for_active_users(session: Session) -> PrefilterRules:
+    """Rules combining every active user's roles. Paused users count: pausing stops alerts,
+    but their roles still decide which jobs are analysed, so nothing is missing when they resume."""
+    role_slugs: set[str] = set()
+    custom_roles: set[str] = set()
+    allow_internships = False
+    for profile in session.scalars(select(UserProfile).join(User).where(User.is_active)):
+        role_slugs.update(profile.roles)
+        custom_roles.update(profile.custom_roles)
+        allow_internships = allow_internships or profile.include_internships
+    return PrefilterRules.build(role_slugs, custom_roles, allow_internships)
+
+
+@dataclass
+class PrefilterRun:
+    """What one pre-filter run decided."""
+
+    passed_job_ids: list[int] = field(default_factory=list)  # these go on to the LLM
+    rejected: Counter[str] = field(default_factory=Counter)  # number rejected, by kind of reason
+
+    @property
+    def checked(self) -> int:
+        return len(self.passed_job_ids) + sum(self.rejected.values())
+
+
+def run_prefilter(session: Session, rules: PrefilterRules | None = None) -> PrefilterRun:
+    """Decide every open job still waiting for the pre-filter, newest first, and store the verdicts.
+
+    Baseline and duplicate jobs were marked "skipped" when saved, so they are never picked up.
+    A job that closed before its turn stays pending and is never analysed. Saving never
+    commits: the caller decides when to save.
+    """
+    rules = rules or rules_for_active_users(session)
+    run = PrefilterRun()
+    pending = session.scalars(
+        select(Job)
+        .where(Job.prefilter_status == PENDING, Job.closed_at.is_(None))
+        .order_by(Job.first_seen_at.desc(), Job.id.desc())
+    )
+    for job in pending:
+        decision = check_job(job.title, job.location_raw, rules)
+        job.prefilter_status = PASSED if decision.passed else REJECTED
+        job.prefilter_reason = decision.reason[:MAX_REASON_CHARS]
+        if decision.passed:
+            run.passed_job_ids.append(job.id)
+        else:
+            run.rejected[reason_kind(decision.reason)] += 1
+    return run
