@@ -1,0 +1,85 @@
+# The default roles every user starts with. Users can remove any of them and add their own.
+#
+# slug:     a short fixed ID used inside JobOrbit (lower case, words joined by _). Never rename
+#           one once it is in use: profiles and analyses refer to it.
+# name:     what people see.
+# keywords: phrases that, found in a job title, mean the job is this role. Written the way they
+#           appear in titles: letters, digits and spaces only (matching ignores capitals and
+#           punctuation). Give both spellings when the UK and US differ.
+# exclude:  words that cancel this role for a title (other roles can still match it).
+
+roles:
+  - slug: data_scientist
+    name: Data Scientist
+    keywords: [data scientist, data science]
+    exclude: []
+
+  - slug: ml_engineer
+    name: Machine Learning Engineer
+    keywords: [machine learning engineer, ml engineer, mlops engineer, machine learning developer]
+    exclude: []
+
+  - slug: ai_engineer
+    name: AI Engineer
+    keywords: [ai engineer, artificial intelligence engineer, generative ai engineer, genai engineer, ai developer]
+    exclude: []
+
+  - slug: nlp_llm_engineer
+    name: NLP / LLM Engineer
+    keywords: [nlp engineer, nlp scientist, natural language processing, llm engineer, large language model]
+    exclude: []
+
+  - slug: applied_scientist
+    name: Applied / Research Scientist
+    keywords: [applied scientist, research scientist, machine learning scientist, ml scientist, ai scientist, research engineer]
+    exclude: [chemistry, chemist, biology, biologist, wet lab]  # lab-science roles with the same title
+
+  - slug: data_analyst
+    name: Data Analyst
+    keywords: [data analyst, data analytics, insight analyst, insights analyst, reporting analyst]
+    exclude: []
+
+  - slug: business_analyst
+    name: Business Analyst
+    keywords: [business analyst, business analysis]
+    exclude: []
+
+  - slug: bi_analyst
+    name: BI Analyst
+    keywords: [bi analyst, business intelligence analyst, business intelligence developer, bi developer, power bi, tableau developer]
+    exclude: []
+
+  - slug: product_analyst
+    name: Product Analyst
+    keywords: [product analyst, product analytics, growth analyst]
+    exclude: []
+
+  - slug: analytics_engineer
+    name: Analytics Engineer
+    keywords: [analytics engineer]
+    exclude: []
+
+  - slug: data_engineer
+    name: Data Engineer
+    keywords: [data engineer, data engineering, etl developer]
+    exclude: []
+
+  - slug: credit_risk_analyst
+    name: Credit Risk Analyst
+    keywords: [credit risk, credit analyst, risk analyst, model risk, risk modelling, risk modeling]
+    exclude: []
+
+  - slug: quant_analyst
+    name: Quantitative Analyst
+    keywords: [quantitative analyst, quant analyst, quantitative researcher, quant researcher]
+    exclude: []
+
+  - slug: data_ai_consultant
+    name: Data / AI Consultant
+    keywords: [data consultant, ai consultant, analytics consultant, data science consultant, machine learning consultant, data strategy]
+    exclude: []
+
+  - slug: tech_graduate_scheme
+    name: Technology / Data Graduate Scheme
+    keywords: [graduate programme, graduate program, graduate scheme, technology graduate, data graduate, analytics graduate, early careers programme, early careers program]
+    exclude: [sales, marketing, hr, human resources, legal, recruitment, customer service]  # non-data schemes

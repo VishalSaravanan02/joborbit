@@ -1,0 +1,13 @@
+# Words in a job title that decide whether the job is too senior, or an internship.
+# Matching ignores capitals and only matches whole words, so "lead" never matches "leading".
+# Letters, digits and spaces only.
+
+# A title containing any of these is dropped.
+# "iii" and "iv" (e.g. "Data Scientist III") are mid or senior levels. "ii" is left for the
+# LLM to judge, because level II roles sometimes accept recent graduates.
+drop_words: [senior, sr, snr, lead, principal, staff, head of, director, manager, vp, vice president, svp, avp, chief, iii, iv]
+
+# A title containing any of these is an internship. It is dropped unless a user has
+# "include internships" switched on. UK apprenticeships are mostly for school leavers,
+# so they are treated the same way.
+internship_words: [intern, internship, placement, industrial placement, year in industry, summer analyst, summer associate, apprentice, apprenticeship]
