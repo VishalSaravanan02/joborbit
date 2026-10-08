@@ -359,13 +359,19 @@ def _add_usage(session_factory: Callable[[], Session], day: date, reply: Reply, 
 # --- Setting it up --------------------------------------------------------------------------------
 
 
-def make_client(session_factory: Callable[[], Session] | None = None) -> LlmClient:
+def make_client(
+    session_factory: Callable[[], Session] | None = None,
+    reasoning_effort: Literal["none", "low", "medium", "high"] | None = None,
+) -> LlmClient:
     """The client set up from .env (provider and key) and settings.yaml (everything else).
 
-    Raises LlmUnavailable if it can't be set up, e.g. the key is missing.
+    `reasoning_effort` replaces the setting for this client only, e.g. to compare efforts in the
+    accuracy check. Raises LlmUnavailable if the client can't be set up, e.g. the key is missing.
     """
     settings = get_settings()
     config = load_app_settings().llm
+    if reasoning_effort is not None:
+        config = config.model_copy(update={"reasoning_effort": reasoning_effort})
     if settings.llm_provider != "openai":
         raise LlmUnavailable(f"LLM_PROVIDER={settings.llm_provider} is not built yet; set LLM_PROVIDER=openai in .env")
     if settings.openai_api_key is None:

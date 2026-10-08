@@ -512,3 +512,11 @@ def test_anthropic_is_not_built_yet(monkeypatch):
     monkeypatch.setattr(client_module, "get_settings", lambda: settings)
     with pytest.raises(LlmUnavailable, match="LLM_PROVIDER=anthropic is not built yet"):
         make_client()
+
+
+def test_the_reasoning_effort_can_be_changed_for_one_client(monkeypatch):
+    settings = settings_without_env_file(llm_provider="openai", openai_api_key="sk-test-key-123")
+    monkeypatch.setattr(client_module, "get_settings", lambda: settings)
+    client = make_client(reasoning_effort="medium")
+    assert client.config.reasoning_effort == client.provider._config.reasoning_effort == "medium"
+    assert make_client().config.reasoning_effort == "low"  # the setting itself is unchanged
