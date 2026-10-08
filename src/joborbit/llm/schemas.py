@@ -201,8 +201,7 @@ def _describe(error: ValidationError) -> str:
 
 
 def answer_schema(custom_roles: Sequence[str] = ()) -> dict[str, Any]:
-    """
-    The answer's shape as a JSON schema, with the allowed codes filled in from the config files.
+    """The answer's shape as a JSON schema, with the allowed codes filled in from the config files.
 
     Sent with each request (llm/client.py), so the LLM can only choose allowed values. The checks
     above still run on every answer. With no custom roles, the schema says that list must be empty.
