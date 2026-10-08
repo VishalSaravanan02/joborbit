@@ -9,3 +9,19 @@ limits:
   max_skills_per_user: 40
   max_skill_chars: 50
   max_users: 6
+
+# The LLM that reads each job (llm/client.py). The provider (openai or anthropic) is set by
+# LLM_PROVIDER in .env. After changing the model, update the prices and re-run the accuracy check.
+llm:
+  model: gpt-6-luna
+  reasoning_effort: low  # none, low, medium or high: how long the model thinks before answering
+  max_output_tokens: 4000  # answer plus thinking; a job whose answer is cut off is marked failed
+  timeout_seconds: 60
+  network_retries: 3  # retries after timeouts, rate limits and server errors
+  daily_call_cap: 150  # analysis stops for the day (UTC) at this many calls
+  warn_at_fraction: 0.8  # warn once a day when this share of the cap is used
+  monthly_budget_usd: 8  # analysis stops for the month (UTC) at this estimated spend
+  prices_usd_per_million: # US dollars per million tokens, from the provider's pricing page
+    input: 0.10
+    cached_input: 0.01  # input the provider has seen recently (e.g. our fixed instructions)
+    output: 0.50  # includes the model's thinking

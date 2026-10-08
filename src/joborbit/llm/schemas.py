@@ -14,7 +14,8 @@ None or empty, so a forgotten field is noticed instead of silently becoming a de
 
 The allowed codes come from the config files (countries.yaml, languages.yaml, roles.yaml),
 so adding a language or a role never needs a change here. answer_schema() describes the same
-rules as a JSON schema, which is sent with each request so the LLM can only pick allowed values.
+rules as a JSON schema, which is sent with each request so the LLM can only pick allowed values
+and can't send longer lists than we keep.
 """
 
 from collections.abc import Iterable, Sequence
@@ -94,16 +95,17 @@ class JobAnalysisResult(BaseModel):
     model_config = ConfigDict(extra="forbid")  # a field we didn't ask for is an error, not ignored
 
     countries: list[str]  # where the job can be done, from countries.yaml
-    cities: list[str]
+    cities: list[str] = Field(json_schema_extra={"maxItems": MAX_CITIES})
     work_mode: Literal["onsite", "hybrid", "remote"] | None
     seniority: Literal["intern", "graduate", "entry", "mid", "senior"] | None
     is_graduate_scheme: bool
     experience_years: int | None = Field(ge=0, le=MAX_EXPERIENCE_YEARS)
     experience_mandatory: bool  # True only if the experience is required, not just preferred
     required_languages: list[str]  # codes from languages.yaml, or "other"
-    role_families: list[str]  # role slugs, best first; empty = none of our roles
+    # Role slugs, best first; empty = none of our roles.
+    role_families: list[str] = Field(json_schema_extra={"maxItems": MAX_ROLE_FAMILIES})
     matched_custom_roles: list[str]  # names from the custom roles sent with the request
-    skills: list[str]
+    skills: list[str] = Field(json_schema_extra={"maxItems": MAX_SKILLS})
     min_degree: Literal["none", "bachelor", "master", "phd"] | None
     deadline: date | None
     summary: str  # one line for alerts
@@ -199,11 +201,12 @@ def _describe(error: ValidationError) -> str:
 
 
 def answer_schema(custom_roles: Sequence[str] = ()) -> dict[str, Any]:
-    """The answer's shape as a JSON schema, with the allowed codes filled in from the config files.
+    """
+    The answer's shape as a JSON schema, with the allowed codes filled in from the config files.
 
     Sent with each request (llm/client.py), so the LLM can only choose allowed values. The checks
-    above still run on every answer. With no custom roles, that list is left open in the schema
-    and the check refuses anything in it.
+    above still run on every answer. With no custom roles, the schema says that list must be empty.
+    The list limits (maxItems) only tell the LLM how many we keep: a longer list is tidied, not refused.
     """
     schema = JobAnalysisResult.model_json_schema()
     schema.pop("description", None)  # the class docstring is written for us; the prompt instructs the LLM
@@ -216,4 +219,6 @@ def answer_schema(custom_roles: Sequence[str] = ()) -> dict[str, Any]:
     for field, values in allowed.items():
         if values:
             schema["properties"][field]["items"]["enum"] = values
+        else:
+            schema["properties"][field]["maxItems"] = 0  # nothing to choose from: the list must be empty
     return schema

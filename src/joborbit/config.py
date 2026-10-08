@@ -7,6 +7,7 @@ in a config file gives a clear error straight away instead of odd behaviour late
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -201,12 +202,45 @@ class LimitsConfig(BaseModel):
     max_users: int = Field(gt=0)
 
 
+class LlmPrices(BaseModel):
+    """What the LLM costs, in US dollars per million tokens."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input: float = Field(ge=0)
+    cached_input: float = Field(ge=0)
+    output: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _cached_is_not_dearer(self) -> "LlmPrices":
+        if self.cached_input > self.input:
+            raise ValueError("cached_input must not cost more than input (are the two swapped?)")
+        return self
+
+
+class LlmConfig(BaseModel):
+    """Which LLM reads the jobs, how it is called, and the limits that keep its cost down."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1)
+    reasoning_effort: Literal["none", "low", "medium", "high"]
+    max_output_tokens: int = Field(gt=0)
+    timeout_seconds: float = Field(gt=0)
+    network_retries: int = Field(ge=0)
+    daily_call_cap: int = Field(gt=0)
+    warn_at_fraction: float = Field(gt=0, lt=1)
+    monthly_budget_usd: float = Field(gt=0)
+    prices_usd_per_million: LlmPrices
+
+
 class AppSettings(BaseModel):
     """Everything in settings.yaml. A new section gets a new field here when it is added."""
 
     model_config = ConfigDict(extra="forbid")
 
     limits: LimitsConfig
+    llm: LlmConfig
 
 
 # --- Loading ------------------------------------------------------------------------

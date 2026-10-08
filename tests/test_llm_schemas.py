@@ -9,6 +9,7 @@ from joborbit.config import load_countries, load_languages, load_roles
 from joborbit.db.models import JobAnalysis
 from joborbit.llm.schemas import (
     MAX_CITIES,
+    MAX_ROLE_FAMILIES,
     MAX_SKILL_CHARS,
     MAX_SKILLS,
     MAX_SUMMARY_CHARS,
@@ -243,7 +244,19 @@ def test_the_schema_lists_exactly_the_codes_in_the_config_files():
 def test_the_schema_lists_the_custom_roles_sent():
     schema = answer_schema(["Insights Analyst", " insights analyst ", "Pricing Analyst"])
     assert items_enum(schema, "matched_custom_roles") == ["Insights Analyst", "Pricing Analyst"]
-    assert items_enum(answer_schema(), "matched_custom_roles") is None  # left open; the check refuses anything
+    assert "maxItems" not in answer_schema(["Insights Analyst"])["properties"]["matched_custom_roles"]
+
+
+def test_with_no_custom_roles_the_schema_says_the_list_must_be_empty():
+    custom = answer_schema()["properties"]["matched_custom_roles"]
+    assert custom["maxItems"] == 0 and "enum" not in custom["items"]
+
+
+def test_the_schema_limits_list_lengths_to_what_we_keep():
+    properties = answer_schema()["properties"]
+    assert properties["role_families"]["maxItems"] == MAX_ROLE_FAMILIES
+    assert properties["skills"]["maxItems"] == MAX_SKILLS
+    assert properties["cities"]["maxItems"] == MAX_CITIES
 
 
 def test_the_schema_requires_every_field_and_allows_no_others():

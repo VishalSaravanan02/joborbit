@@ -3,6 +3,7 @@
 import re
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from joborbit.config import (
@@ -91,10 +92,8 @@ def write(tmp_path, text: str, name: str = "config.yaml"):
 
 
 def roles_file(tmp_path, *, slug="data_scientist", keywords="[data scientist]", exclude="[]", extra=""):
-    return write(
-        tmp_path,
-        f"roles:\n  - slug: {slug}\n    name: Data Scientist\n    keywords: {keywords}\n    exclude: {exclude}\n{extra}",
-    )
+    text = f"roles:\n  - slug: {slug}\n    name: Data Scientist\n    keywords: {keywords}\n    exclude: {exclude}\n"
+    return write(tmp_path, text + extra)
 
 
 def test_capitals_and_extra_spaces_are_tidied(tmp_path):
@@ -143,7 +142,8 @@ def test_a_word_cannot_be_both_a_keyword_and_an_exclude(tmp_path):
 
 def test_a_misspelt_field_name_is_an_error_not_a_silent_default(tmp_path):
     """'keyword' instead of 'keywords' must fail loudly rather than leave the role empty."""
-    path = write(tmp_path, "roles:\n  - slug: data_scientist\n    name: Data Scientist\n    keyword: [data scientist]\n")
+    text = "roles:\n  - slug: data_scientist\n    name: Data Scientist\n    keyword: [data scientist]\n"
+    path = write(tmp_path, text)
     with pytest.raises(ValidationError):
         load_roles(path)
 
@@ -218,6 +218,14 @@ def test_the_settings_limits_are_loaded():
     assert (limits.max_roles_per_user, limits.max_favourites_per_user, limits.max_users) == (20, 30, 6)
 
 
+def test_the_llm_settings_are_loaded():
+    llm = load_app_settings().llm
+    assert (llm.model, llm.reasoning_effort) == ("gpt-6-luna", "low")
+    assert (llm.daily_call_cap, llm.warn_at_fraction, llm.monthly_budget_usd) == (150, 0.8, 8)
+    prices = llm.prices_usd_per_million
+    assert (prices.input, prices.cached_input, prices.output) == (0.10, 0.01, 0.50)
+
+
 VALID_LIMITS = {
     "max_roles_per_user": 20,
     "max_role_name_chars": 50,
@@ -227,25 +235,93 @@ VALID_LIMITS = {
     "max_users": 6,
 }
 
+VALID_LLM = {
+    "model": "gpt-6-luna",
+    "reasoning_effort": "low",
+    "max_output_tokens": 4000,
+    "timeout_seconds": 60,
+    "network_retries": 3,
+    "daily_call_cap": 150,
+    "warn_at_fraction": 0.8,
+    "monthly_budget_usd": 8,
+    "prices_usd_per_million": {"input": 0.10, "cached_input": 0.01, "output": 0.50},
+}
 
-def settings_text(limits: dict, extra: str = "") -> str:
-    return "limits:\n" + "".join(f"  {name}: {value}\n" for name, value in limits.items()) + extra
+
+def settings_text(limits: dict = VALID_LIMITS, llm: dict = VALID_LLM, extra: str = "") -> str:
+    """A whole settings file: valid, except for whatever a test changes."""
+    return yaml.safe_dump({"limits": limits, "llm": llm}, sort_keys=False) + extra
+
+
+def without(data: dict, key: str) -> dict:
+    return {name: value for name, value in data.items() if name != key}
+
+
+def with_prices(**changes) -> dict:
+    return {**VALID_LLM, "prices_usd_per_million": {**VALID_LLM["prices_usd_per_million"], **changes}}
 
 
 def test_a_complete_settings_file_loads(tmp_path):
-    """The baseline for the next test: only the one deliberate mistake may make a file fail."""
-    assert load_app_settings(write(tmp_path, settings_text(VALID_LIMITS))).limits.max_users == 6
+    """The baseline for the next tests: only the one deliberate mistake may make a file fail."""
+    settings = load_app_settings(write(tmp_path, settings_text()))
+    assert settings.limits.max_users == 6 and settings.llm.daily_call_cap == 150
 
 
 @pytest.mark.parametrize(
     ("limits", "extra"),
     [
         ({**VALID_LIMITS, "max_roles_per_user": 0}, ""),  # limits must be above zero
-        ({key: value for key, value in VALID_LIMITS.items() if key != "max_users"}, ""),  # one limit missing
+        (without(VALID_LIMITS, "max_users"), ""),  # one limit missing
         ({**VALID_LIMITS, "max_role_per_user": 20}, ""),  # a misspelt limit
         (VALID_LIMITS, "limts:\n  max_users: 6\n"),  # a misspelt section
     ],
 )
 def test_bad_settings_are_refused(tmp_path, limits, extra):
     with pytest.raises(ValidationError):
-        load_app_settings(write(tmp_path, settings_text(limits, extra)))
+        load_app_settings(write(tmp_path, settings_text(limits, extra=extra)))
+
+
+def test_a_settings_file_without_the_llm_section_is_refused(tmp_path):
+    with pytest.raises(ValidationError, match="llm"):
+        load_app_settings(write(tmp_path, yaml.safe_dump({"limits": VALID_LIMITS})))
+
+
+BAD_LLM = {
+    "no model": {**VALID_LLM, "model": ""},
+    "unknown effort": {**VALID_LLM, "reasoning_effort": "extreme"},
+    "no output tokens": {**VALID_LLM, "max_output_tokens": 0},
+    "no timeout": {**VALID_LLM, "timeout_seconds": 0},
+    "negative retries": {**VALID_LLM, "network_retries": -1},
+    "no daily calls": {**VALID_LLM, "daily_call_cap": 0},
+    "warn at 0": {**VALID_LLM, "warn_at_fraction": 0},
+    "warn at the cap": {**VALID_LLM, "warn_at_fraction": 1},
+    "no monthly budget": {**VALID_LLM, "monthly_budget_usd": 0},
+    "cap missing": without(VALID_LLM, "daily_call_cap"),
+    "prices missing": without(VALID_LLM, "prices_usd_per_million"),
+    "misspelt setting": {**VALID_LLM, "daily_cap": 150},
+    "negative price": with_prices(output=-0.5),
+    "misspelt price": with_prices(inputs=0.10),
+}
+
+
+@pytest.mark.parametrize("llm", BAD_LLM.values(), ids=BAD_LLM.keys())
+def test_bad_llm_settings_are_refused(tmp_path, llm):
+    with pytest.raises(ValidationError):
+        load_app_settings(write(tmp_path, settings_text(llm=llm)))
+
+
+def test_swapped_prices_are_explained(tmp_path):
+    with pytest.raises(ValidationError, match="are the two swapped"):
+        load_app_settings(write(tmp_path, settings_text(llm=with_prices(cached_input=0.20))))
+
+
+@pytest.mark.parametrize(
+    "llm",
+    [
+        {**VALID_LLM, "reasoning_effort": "none"},  # no thinking at all
+        {**VALID_LLM, "network_retries": 0},  # never retry
+        with_prices(input=0.10, cached_input=0.10),  # no discount for cached input
+    ],
+)
+def test_edge_values_are_allowed(tmp_path, llm):
+    assert load_app_settings(write(tmp_path, settings_text(llm=llm))).llm.model_dump() == llm
