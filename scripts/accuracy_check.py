@@ -24,6 +24,7 @@ country, seniority, experience, languages and role.
 import argparse
 import math
 import random
+import sys
 import time
 from collections import Counter
 from pathlib import Path
@@ -135,14 +136,16 @@ def labelled_jobs(folder: Path) -> list[EvalJob]:
     return jobs
 
 
-def ask_about(client: LlmClient, jobs: list[EvalJob]) -> tuple[list[Outcome], str]:
+def ask_about(client: LlmClient, jobs: list[EvalJob], label: str = "") -> tuple[list[Outcome], str]:
     """Ask the LLM about every job exactly as analysis will. Stops at once if the LLM is unavailable.
 
-    Returns the outcomes, and the model's name as the provider reported it (or as set, if no job got an answer).
+    Prints one progress line per job to stderr (the report itself goes to stdout), starting with
+    `label`. Returns the outcomes, and the model's name as the provider reported it (or as set, if
+    no job got an answer).
     """
     outcomes = []
     model = client.config.model
-    for job in jobs:
+    for number, job in enumerate(jobs, start=1):
         started = time.monotonic()
         message = job_message(job.company, job.title, job.location, job.posted, job.description)
         try:
@@ -155,6 +158,7 @@ def ask_about(client: LlmClient, jobs: list[EvalJob]) -> tuple[list[Outcome], st
             )
         except AnswerFailed as error:
             outcomes.append(Outcome(job.id, None, str(error), seconds=time.monotonic() - started))
+            _progress(label, number, len(jobs), outcomes[-1].seconds, f"{job.id} (no usable answer)")
             continue
         model = answer.model
         outcomes.append(
@@ -168,7 +172,12 @@ def ask_about(client: LlmClient, jobs: list[EvalJob]) -> tuple[list[Outcome], st
                 time.monotonic() - started,
             )
         )
+        _progress(label, number, len(jobs), outcomes[-1].seconds, job.id)
     return outcomes, model
+
+
+def _progress(label: str, number: int, total: int, seconds: float, what: str) -> None:
+    print(f"  {label:<7}{number:>3}/{total}  {seconds:5.1f} s  {what}", file=sys.stderr, flush=True)
 
 
 def answers_path(folder: Path, effort: str) -> Path:
@@ -182,7 +191,7 @@ def run(folder: Path, efforts: list[str]) -> None:
     results = {}
     for effort in efforts:
         try:
-            outcomes, model = ask_about(make_client(reasoning_effort=effort), jobs)
+            outcomes, model = ask_about(make_client(reasoning_effort=effort), jobs, label=effort)
         except LlmUnavailable as error:
             raise SystemExit(f"Stopped during effort {effort!r} (nothing saved for it): {error}") from error
         save_outcomes(answers_path(folder, effort), effort, PROMPT_VERSION, model, outcomes)

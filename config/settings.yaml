@@ -14,11 +14,11 @@ limits:
 # LLM_PROVIDER in .env. After changing the model, update the prices and re-run the accuracy check.
 llm:
   model: gpt-6-luna
-  reasoning_effort: low  # none, low, medium or high: how long the model thinks before answering
+  reasoning_effort: medium  # none, low, medium or high; medium scored 30 of 30 in the accuracy check
   max_output_tokens: 4000  # answer plus thinking; a job whose answer is cut off is marked failed
   timeout_seconds: 60
   network_retries: 3  # retries after timeouts, rate limits and server errors
-  daily_call_cap: 150  # analysis stops for the day (UTC) at this many calls
+  daily_call_cap: 300  # analysis stops for the day (UTC) at this many calls; 150 once prompt tuning is done
   warn_at_fraction: 0.8  # warn once a day when this share of the cap is used
   monthly_budget_usd: 8  # analysis stops for the month (UTC) at this estimated spend
   prices_usd_per_million:  # US dollars per million tokens, from the provider's pricing page

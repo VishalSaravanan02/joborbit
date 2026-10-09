@@ -73,6 +73,23 @@ def test_no_real_company_is_named_in_the_instructions():
     assert found == []
 
 
+@pytest.mark.parametrize(
+    "rule",
+    [
+        # Version 2's changes, each found by the first accuracy check:
+        "seniority is the one exception, judged from the clues",  # null was used too often for seniority
+        "Strong or deep experience alone is \"mid\", not \"senior\"",  # cautious about "senior"
+        "Use null only when the posting gives no clue at all",
+        "\"regardless of previous experience\"",  # means 0 years
+        "listed under a heading that sets requirements",  # required experience without a number
+        "\"You may be a good fit if\"",  # invited, so not required
+        "(\"globally\", \"worldwide\", \"work from anywhere\") covers all of them",
+    ],
+)
+def test_the_rules_found_by_the_accuracy_check_are_kept(rule):
+    assert rule in " ".join(instructions().split())
+
+
 def test_the_prompt_has_a_version_and_a_schema_name():
     assert PROMPT_VERSION
     assert re.fullmatch(r"[a-zA-Z0-9_-]+", SCHEMA_NAME)  # the characters OpenAI allows in a schema name
@@ -104,6 +121,9 @@ def test_the_examples_cover_the_tricky_cases():
     assert any(len(a.get("countries", [])) > 1 for a in answers)  # a region
     assert any(a.get("is_graduate_scheme") for a in answers)  # a graduate scheme
     assert any(a.get("seniority") == "senior" for a in answers)  # a senior job
+    # Added in version 2, after the first accuracy check:
+    assert any(a.get("experience_mandatory") is True and a.get("experience_years") is None for a in answers)
+    assert any(a.get("seniority") == "mid" and a.get("experience_years") is None for a in answers)
 
 
 # --- The job message ---------------------------------------------------------------------------------

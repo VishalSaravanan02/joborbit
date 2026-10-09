@@ -220,8 +220,8 @@ def test_the_settings_limits_are_loaded():
 
 def test_the_llm_settings_are_loaded():
     llm = load_app_settings().llm
-    assert (llm.model, llm.reasoning_effort) == ("gpt-6-luna", "low")
-    assert (llm.daily_call_cap, llm.warn_at_fraction, llm.monthly_budget_usd) == (150, 0.8, 8)
+    assert (llm.model, llm.reasoning_effort) == ("gpt-6-luna", "medium")
+    assert (llm.daily_call_cap, llm.warn_at_fraction, llm.monthly_budget_usd) == (300, 0.8, 8)
     prices = llm.prices_usd_per_million
     assert (prices.input, prices.cached_input, prices.output) == (0.10, 0.01, 0.50)
 

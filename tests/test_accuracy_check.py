@@ -198,11 +198,12 @@ def test_each_job_is_asked_about_exactly_as_analysis_will(sessions):
     assert (outcome.input_tokens, outcome.output_tokens) == (2500, 300) and outcome.cost_usd > 0
 
 
-def test_a_job_without_a_usable_answer_is_recorded_and_the_rest_go_on(sessions):
+def test_a_job_without_a_usable_answer_is_recorded_and_the_rest_go_on(sessions, capsys):
     bad = json.dumps({**ANSWER, "countries": ["US"]})
     client = client_with(sessions, bad, bad, json.dumps(ANSWER))
-    outcomes, _ = accuracy_check.ask_about(client, [eval_job("acme/1"), eval_job("acme/2")])
+    outcomes, _ = accuracy_check.ask_about(client, [eval_job("acme/1"), eval_job("acme/2")], label="low")
     assert outcomes[0].answer is None and "broke the rules twice" in outcomes[0].error
+    assert "acme/1 (no usable answer)" in capsys.readouterr().err
     assert outcomes[1].answer is not None
 
 
@@ -234,8 +235,12 @@ def test_run_asks_once_per_effort_saves_the_answers_and_reports(tmp_path, sessio
         details, outcomes = load_outcomes(folder / f"answers-{effort}.json")
         assert details == {"effort": effort, "prompt_version": PROMPT_VERSION, "model": "gpt-6-luna-2026-05-18"}
         assert [outcome.job_id for outcome in outcomes] == ["acme/1", "acme/2"]
-    out = capsys.readouterr().out
+    captured = capsys.readouterr()
+    out = captured.out
     assert out.startswith("Asking about each job at effort low, none: at least 4 calls.")
+    progress = captured.err.splitlines()  # one line per job, kept apart from the report
+    assert len(progress) == 4 and progress[0].startswith("  low      1/2") and progress[0].endswith("acme/1")
+    assert progress[3].startswith("  none     2/2") and "acme/" not in out
     assert "2 of 2 jobs right on all five" in out
     assert out.rstrip().endswith("Cheapest effort reaching the target: none")
 

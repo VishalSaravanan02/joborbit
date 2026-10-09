@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from joborbit.config import LlmConfig, LlmPrices
+from joborbit.config import LlmConfig, LlmPrices, load_app_settings
 from joborbit.db.models import Base, LlmUsage
 from joborbit.db.session import create_sqlite_engine
 from joborbit.llm import client as client_module
@@ -517,6 +517,7 @@ def test_anthropic_is_not_built_yet(monkeypatch):
 def test_the_reasoning_effort_can_be_changed_for_one_client(monkeypatch):
     settings = settings_without_env_file(llm_provider="openai", openai_api_key="sk-test-key-123")
     monkeypatch.setattr(client_module, "get_settings", lambda: settings)
-    client = make_client(reasoning_effort="medium")
-    assert client.config.reasoning_effort == client.provider._config.reasoning_effort == "medium"
-    assert make_client().config.reasoning_effort == "low"  # the setting itself is unchanged
+    client = make_client(reasoning_effort="none")
+    assert client.config.reasoning_effort == client.provider._config.reasoning_effort == "none"
+    # Without the override, the setting from settings.yaml is used, unchanged.
+    assert make_client().config.reasoning_effort == load_app_settings().llm.reasoning_effort != "none"
