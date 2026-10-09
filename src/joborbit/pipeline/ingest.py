@@ -212,6 +212,7 @@ def _reopen(
         job.prefilter_status = "pending"
         job.prefilter_reason = None
         job.analysis_status = "pending"
+        job.matched_at = None  # matched again once analysed
         job.became_new_at = now  # first_seen_at keeps the first time; this records the comeback
         result.new_job_ids.append(job.id)
         open_by_fingerprint.setdefault(job.fingerprint, job)

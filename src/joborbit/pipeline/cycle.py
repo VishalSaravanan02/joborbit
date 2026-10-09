@@ -1,4 +1,4 @@
-"""What happens to jobs after each fetch: the pre-filter, then the LLM analysis.
+"""What happens to jobs after each fetch: the pre-filter, the LLM analysis, then matching.
 
 process_new_jobs is the one place these steps are joined, so scripts/run_cycle.py and (later)
 the worker run exactly the same thing. Fetching is left to the caller, so this can be tested
@@ -13,6 +13,9 @@ The order matters:
 3. The analysis takes every job waiting for it, newest first, including any left by a run that
    stopped at the daily cap. If the LLM can't be used (no key, unreachable, budget used up), the
    verdicts are kept and the jobs simply wait for the next run: nothing is lost.
+4. Matching takes every analysed job not matched yet, this cycle's or earlier, and saves a match
+   for each user whose hard filters it passes. It runs even with analysis switched off, so jobs
+   analysed by an earlier run are never left unmatched. It costs nothing (no LLM).
 """
 
 import logging
@@ -23,6 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from joborbit.db.session import get_engine
 from joborbit.llm.client import LlmClient, LlmUnavailable, make_client
+from joborbit.matching.matcher import MatchingRun, run_matching
 from joborbit.pipeline.analyse import AnalysisRun, pending_job_ids, retry_failed, run_analysis
 from joborbit.pipeline.prefilter import PrefilterRun, run_prefilter
 
@@ -37,6 +41,7 @@ class Processing:
     retried: int  # failed jobs sent back for another try
     analysis: AnalysisRun | None  # None when analysis was switched off
     waiting: int  # jobs still waiting for analysis at the end
+    matching: MatchingRun
 
 
 def process_new_jobs(
@@ -46,7 +51,8 @@ def process_new_jobs(
     session_factory: Callable[[], Session] | None = None,
     client: LlmClient | None = None,
 ) -> Processing:
-    """Pre-filter every waiting job, then (if `analyse`) ask the LLM about at most `limit` of them.
+    """Pre-filter every waiting job, then (if `analyse`) ask the LLM about at most `limit` of them,
+    then match every analysed job not matched yet.
 
     `retry` first sends failed jobs back to "pending". `client` is for tests; normally the client
     is set up from .env and settings.yaml, and a missing key just stops the analysis.
@@ -68,6 +74,13 @@ def process_new_jobs(
             logger.warning("Analysis not started: %s", error)
             analysis = AnalysisRun(stopped=str(error))
 
+    with sessions() as session, session.begin():
+        matching = run_matching(session)
+    logger.info(
+        "Matching: %d jobs, %d matches, %d dropped by the hard filters",
+        matching.jobs, len(matching.matches), sum(matching.dropped.values()),
+    )
+
     with sessions() as session:
         waiting = len(pending_job_ids(session))
-    return Processing(prefilter, retried, analysis, waiting)
+    return Processing(prefilter, retried, analysis, waiting, matching)

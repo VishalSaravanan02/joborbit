@@ -372,3 +372,23 @@ def test_a_long_gap_return_that_is_a_duplicate_does_not_become_new_again(session
         session, company, [make_job("1"), make_job("2", "Data Engineer"), make_job("3")], closed_at + timedelta(days=8)
     )
     assert job_by_id(session, "1").became_new_at == START
+
+
+def test_a_fresh_posting_after_a_long_gap_is_matched_again(session, company):
+    closed_at = close_job_1(session, company)
+    job = job_by_id(session, "1")
+    job.analysis_status, job.matched_at = "done", START  # as if analysed and matched the first time
+    session.commit()
+
+    save(session, company, [make_job("1"), make_job("2", "Data Engineer")], closed_at + timedelta(days=8))
+    assert job.matched_at is None
+
+
+def test_a_quiet_reopen_keeps_its_match(session, company):
+    closed_at = close_job_1(session, company)
+    job = job_by_id(session, "1")
+    job.analysis_status, job.matched_at = "done", START
+    session.commit()
+
+    save(session, company, [make_job("1"), make_job("2", "Data Engineer")], closed_at + timedelta(days=2))
+    assert job.matched_at == START

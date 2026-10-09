@@ -7,14 +7,17 @@ import importlib.util
 import subprocess
 import sys
 from collections import Counter
+from datetime import datetime
 
 import pytest
 from sqlalchemy.orm import Session
 
 from joborbit.db.models import Base, Company, Job, JobAnalysis
 from joborbit.db.session import create_sqlite_engine
+from joborbit.matching.matcher import MatchingRun, NewMatch
 from joborbit.pipeline.analyse import AnalysisRun
 from joborbit.pipeline.cycle import Processing
+from joborbit.pipeline.ingest import CycleResult
 from joborbit.pipeline.prefilter import PrefilterRun
 from joborbit.settings import PROJECT_ROOT
 
@@ -70,7 +73,7 @@ def session(tmp_path):
 
 def processing(analysis_run: AnalysisRun | None, waiting: int = 1, retried: int = 0) -> Processing:
     prefilter = PrefilterRun(passed_job_ids=[1, 3, 4], rejected=Counter({"senior title": 1}))
-    return Processing(prefilter, retried, analysis_run, waiting)
+    return Processing(prefilter, retried, analysis_run, waiting, MatchingRun())
 
 
 # --- The parts of a line ---------------------------------------------------------------------------
@@ -168,3 +171,76 @@ def test_a_limit_below_one_is_refused_before_anything_is_fetched():
         [sys.executable, str(SCRIPT), "--limit", "0"], capture_output=True, text=True, check=False
     )
     assert result.returncode == 2 and "--limit must be at least 1" in result.stderr
+
+
+# --- Matching ---------------------------------------------------------------------------------------
+
+
+def new_match(title: str, score: int, tier: str, reasons=("Role: Data Analyst",), notes=()) -> NewMatch:
+    return NewMatch(
+        match_id=1, user_name="Vishal", job_id=1, company="Acme", title=title, url=f"https://e.com/{score}",
+        score=score, tier=tier, reasons=tuple(reasons), notes=tuple(notes),
+    )
+
+
+def test_no_jobs_to_match_is_said_in_one_line(capsys):
+    run_cycle.print_matching(MatchingRun())
+    assert capsys.readouterr().out == "\nMatching: no analysed jobs waiting.\n"
+
+
+def test_matches_are_counted_by_tier_and_listed_best_first(capsys):
+    run = MatchingRun(
+        jobs=4,
+        matches=[
+            new_match("Data Analyst", 55, "digest"),
+            new_match("Junior Analyst", 30, "silent", reasons=()),
+            new_match("Graduate Data Analyst", 80, "instant", notes=["Originally posted Jan 2022"]),
+            new_match("Analyst II", 76, "digest", notes=["Originally posted Mar 2025"]),
+        ],
+        dropped=Counter({"level": 2, "role": 1}),
+    )
+    run_cycle.print_matching(run)
+    out = capsys.readouterr().out
+    assert (
+        "Matching: 4 jobs, 4 matches (1 instant, 2 digest, 1 silent); dropped by the hard filters: 2 level, 1 role"
+    ) in out
+    tags = ["[instant 80]", "[digest 76]", "[digest 55]", "[silent 30]"]
+    assert [out.index(tag) for tag in tags] == sorted(out.index(tag) for tag in tags)
+    assert (
+        "  [instant 80] Vishal: Acme: Graduate Data Analyst\n    Role: Data Analyst\n"
+        "    ! Originally posted Jan 2022\n    https://e.com/80\n"
+    ) in out
+    assert "  [silent 30] Vishal: Acme: Junior Analyst\n    https://e.com/30\n" in out
+
+
+def test_a_single_job_and_match_are_said_in_the_singular(capsys):
+    run_cycle.print_matching(MatchingRun(jobs=1, matches=[new_match("Data Analyst", 60, "digest")]))
+    out = capsys.readouterr().out
+    assert "Matching: 1 job, 1 match (0 instant, 1 digest, 0 silent)\n" in out
+
+
+def test_jobs_that_matched_nobody_are_still_counted(capsys):
+    run_cycle.print_matching(MatchingRun(jobs=2, dropped=Counter({"country": 2})))
+    out = capsys.readouterr().out
+    assert "Matching: 2 jobs, 0 matches (0 instant, 0 digest, 0 silent); dropped by the hard filters: 2 country" in out
+
+
+def test_a_whole_run_prints_every_part_in_order(session, monkeypatch, capsys):
+    """main() with the fetch and the processing replaced, so nothing real is fetched or asked."""
+    async def no_fetch():
+        return CycleResult(started_at=datetime(2026, 10, 9, 9, 0), finished_at=datetime(2026, 10, 9, 9, 1))
+
+    done = processing(AnalysisRun(done=[1], cost_usd=0.0004))
+    done.matching = MatchingRun(jobs=1, matches=[new_match("Graduate Data Analyst", 80, "instant")])
+    monkeypatch.setattr(run_cycle, "run_fetch_cycle", no_fetch)
+    monkeypatch.setattr(run_cycle, "process_new_jobs", lambda **_: done)
+    monkeypatch.setattr(run_cycle, "setup_logging", lambda *_: None)
+    monkeypatch.setattr(run_cycle, "get_engine", lambda: session.get_bind())
+    monkeypatch.setattr(sys, "argv", ["run_cycle.py"])
+
+    run_cycle.main()
+
+    out = capsys.readouterr().out
+    parts = ["Cycle finished in 60.0 s", "Pre-filter:", "Analysis: 1 done", "Matching: 1 job, 1 match"]
+    assert [out.index(part) for part in parts] == sorted(out.index(part) for part in parts)
+    assert "[instant 80] Vishal: Acme: Graduate Data Analyst" in out

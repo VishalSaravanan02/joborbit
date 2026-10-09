@@ -1,15 +1,17 @@
-"""Run one full cycle against the real job sites: fetch, pre-filter, then LLM analysis.
+"""Run one full cycle against the real job sites: fetch, pre-filter, LLM analysis, then matching.
 
 Fetches every active company in the database, saves what changed, and records a fetch run for
 each. The first cycle for a company only builds its baseline, so it reports no new jobs; later
 cycles report only jobs posted since. Then the pre-filter decides every waiting job, and the LLM
 analyses the ones that pass (newest first). If the LLM can't be used (no key, unreachable, or the
-daily cap or budget reached), the jobs wait for the next run: nothing is lost.
+daily cap or budget reached), the jobs wait for the next run: nothing is lost. Last, every analysed
+job not matched yet is matched against every user, and each new match is listed with its score,
+tier (instant, digest or silent), reasons and notes. Nothing is sent: alerts come in a later step.
 
 Usage:
     python scripts/run_cycle.py [--no-analysis] [--limit N] [--retry-failed] [--show-rejected]
 
---no-analysis    fetch and pre-filter only: no LLM calls, no cost
+--no-analysis    fetch, pre-filter and match only: no LLM calls, no cost
 --limit N        analyse at most N jobs (the rest wait for the next run)
 --retry-failed   first send jobs whose analysis failed back for another try (e.g. after a prompt fix)
 --show-rejected  list every new job with its pre-filter verdict, not only the ones that passed
@@ -19,12 +21,14 @@ A log of the run is also written to var/logs/run_cycle.log.
 
 import argparse
 import asyncio
+from collections import Counter
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from joborbit.db.models import Company, Job, JobAnalysis
 from joborbit.db.session import get_engine
+from joborbit.matching.matcher import MatchingRun
 from joborbit.pipeline.cycle import Processing, process_new_jobs
 from joborbit.pipeline.ingest import CycleResult, run_fetch_cycle
 from joborbit.utils.logging import setup_logging
@@ -49,8 +53,8 @@ def print_summary(result: CycleResult) -> None:
     print(f"\n{succeeded} of {len(result.outcomes)} companies fetched successfully; {new} new {plural(new, 'job')}.")
 
 
-def plural(count: int, word: str) -> str:
-    return word if count == 1 else f"{word}s"
+def plural(count: int, word: str, many: str | None = None) -> str:
+    return word if count == 1 else (many or f"{word}s")
 
 
 def verdict(job: Job) -> str:
@@ -149,9 +153,33 @@ def print_processing(session: Session, processing: Processing) -> None:
             print(f"  {company}: {title}")
 
 
+TIER_ORDER = {"instant": 0, "digest": 1, "silent": 2}
+
+
+def print_matching(matching: MatchingRun) -> None:
+    """How many jobs were matched, then every new match: best tier and highest score first."""
+    if not matching.jobs:
+        print("\nMatching: no analysed jobs waiting.")
+        return
+    tiers = Counter(match.tier for match in matching.matches)
+    dropped = ", ".join(f"{count} {kind}" for kind, count in matching.dropped.most_common())
+    print(
+        f"\nMatching: {matching.jobs} {plural(matching.jobs, 'job')}, {len(matching.matches)} "
+        f"{plural(len(matching.matches), 'match', 'matches')} ({tiers['instant']} instant, {tiers['digest']} digest, "
+        f"{tiers['silent']} silent)" + (f"; dropped by the hard filters: {dropped}" if dropped else "")
+    )
+    for match in sorted(matching.matches, key=lambda m: (TIER_ORDER[m.tier], -m.score, m.company, m.title)):
+        print(f"  [{match.tier} {match.score}] {match.user_name}: {match.company}: {match.title}")
+        if match.reasons:
+            print(f"    {' | '.join(match.reasons)}")
+        for note in match.notes:
+            print(f"    ! {note}")
+        print(f"    {match.url}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--no-analysis", action="store_true", help="fetch and pre-filter only (no LLM calls)")
+    parser.add_argument("--no-analysis", action="store_true", help="fetch, pre-filter and match only (no LLM calls)")
     parser.add_argument("--limit", type=int, help="analyse at most this many jobs")
     parser.add_argument("--retry-failed", action="store_true", help="retry jobs whose analysis failed")
     parser.add_argument("--show-rejected", action="store_true", help="list rejected new jobs too")
@@ -166,6 +194,7 @@ def main() -> None:
     with Session(get_engine()) as session:
         print_new_jobs(session, result.new_job_ids, args.show_rejected)
         print_processing(session, processing)
+    print_matching(processing.matching)
 
 
 if __name__ == "__main__":

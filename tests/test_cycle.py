@@ -4,10 +4,11 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from joborbit.config import load_app_settings
-from joborbit.db.models import Base, Company, Job, User, UserProfile
+from joborbit.db.models import Base, Company, Job, JobAnalysis, Match, User, UserProfile
 from joborbit.db.session import create_sqlite_engine
 from joborbit.llm.client import LlmClient, LlmUnavailable, Provider, Reply
 from joborbit.pipeline import cycle
@@ -141,3 +142,31 @@ def test_failed_jobs_are_only_tried_again_when_asked(sessions):
     retried = process_new_jobs(retry=True, session_factory=sessions, client=client_with(sessions, GOOD))
     assert (retried.retried, retried.analysis.done) == (1, [job_id])
     assert statuses(sessions, job_id) == ("passed", "done")
+
+
+def test_jobs_analysed_in_a_cycle_are_matched_in_the_same_cycle(sessions):
+    job_id = add_job(sessions, "Graduate Data Analyst")
+    result = process_new_jobs(session_factory=sessions, client=client_with(sessions, GOOD))
+
+    [new] = result.matching.matches
+    assert (new.job_id, new.user_name, new.tier) == (job_id, "Vishal", "instant")
+    assert result.matching.jobs == 1
+    with sessions() as session:
+        assert session.get_one(Job, job_id).matched_at is not None
+        assert session.scalars(select(Match.job_id)).all() == [job_id]
+
+
+def test_jobs_analysed_earlier_are_matched_even_with_analysis_switched_off(sessions):
+    """Matching costs nothing, so a run without analysis still matches what earlier runs analysed."""
+    job_id = add_job(sessions, "Graduate Data Analyst", prefilter_status="passed", analysis_status="done")
+    with sessions() as session, session.begin():
+        fields = json.loads(GOOD)
+        fields["deadline"] = None
+        made_by = {"model": "gpt-6-luna", "prompt_version": "2", "input_tokens": 1, "output_tokens": 1}
+        session.add(JobAnalysis(job_id=job_id, **made_by, **fields))
+    client = client_with(sessions)
+
+    result = process_new_jobs(analyse=False, session_factory=sessions, client=client)
+
+    assert result.analysis is None and client.provider.requests == []
+    assert [new.job_id for new in result.matching.matches] == [job_id]

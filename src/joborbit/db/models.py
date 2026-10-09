@@ -109,6 +109,8 @@ class Job(Base):
     prefilter_status: Mapped[str] = mapped_column(String(20), default="pending")
     prefilter_reason: Mapped[str | None] = mapped_column(String(200))
     analysis_status: Mapped[str] = mapped_column(String(20), default="pending")
+    # When the job was matched against every user (matching/matcher.py); empty = still waiting.
+    matched_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     company: Mapped[Company] = relationship(back_populates="jobs")
     # Deleting a job deletes its analysis with it.
