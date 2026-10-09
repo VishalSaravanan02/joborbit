@@ -7,11 +7,12 @@ analyses the ones that pass (newest first). If the LLM can't be used (no key, un
 daily cap or budget reached), the jobs wait for the next run: nothing is lost.
 
 Usage:
-    python scripts/run_cycle.py [--no-analysis] [--limit N] [--retry-failed]
+    python scripts/run_cycle.py [--no-analysis] [--limit N] [--retry-failed] [--show-rejected]
 
---no-analysis   fetch and pre-filter only: no LLM calls, no cost
---limit N       analyse at most N jobs (the rest wait for the next run)
---retry-failed  first send jobs whose analysis failed back for another try (e.g. after a prompt fix)
+--no-analysis    fetch and pre-filter only: no LLM calls, no cost
+--limit N        analyse at most N jobs (the rest wait for the next run)
+--retry-failed   first send jobs whose analysis failed back for another try (e.g. after a prompt fix)
+--show-rejected  list every new job with its pre-filter verdict, not only the ones that passed
 
 A log of the run is also written to var/logs/run_cycle.log.
 """
@@ -59,18 +60,27 @@ def verdict(job: Job) -> str:
     return f"[{job.prefilter_status}]"
 
 
-def print_new_jobs(session: Session, job_ids: list[int]) -> None:
-    if not job_ids:
-        return
-    print("\nNew jobs:")
-    rows = session.execute(
+def print_new_jobs(session: Session, job_ids: list[int], show_rejected: bool = False) -> None:
+    """The new jobs that passed the pre-filter, or every new job with its verdict if `show_rejected`.
+
+    The rejected ones are already counted by reason in the pre-filter line.
+    """
+    query = (
         select(Company.name, Job)
         .join(Company, Job.company_id == Company.id)
         .where(Job.id.in_(job_ids))
         .order_by(Company.name, Job.title)
     )
-    for company, job in rows:
-        print(f"  {company}: {job.title} ({job.location_raw or 'no location'})  {verdict(job)}\n    {job.url}")
+    if not show_rejected:
+        query = query.where(Job.prefilter_status == "passed")
+    rows = session.execute(query).all()
+    hidden = len(job_ids) - len(rows)
+    if rows:
+        print("\nNew jobs:" if show_rejected else "\nNew jobs that passed the pre-filter:")
+        for company, job in rows:
+            print(f"  {company}: {job.title} ({job.location_raw or 'no location'})  {verdict(job)}\n    {job.url}")
+    if hidden:
+        print(f"\n{hidden} other new {plural(hidden, 'job')} not listed (--show-rejected lists them).")
 
 
 def experience(analysis: JobAnalysis) -> str:
@@ -144,6 +154,7 @@ def main() -> None:
     parser.add_argument("--no-analysis", action="store_true", help="fetch and pre-filter only (no LLM calls)")
     parser.add_argument("--limit", type=int, help="analyse at most this many jobs")
     parser.add_argument("--retry-failed", action="store_true", help="retry jobs whose analysis failed")
+    parser.add_argument("--show-rejected", action="store_true", help="list rejected new jobs too")
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
@@ -153,7 +164,7 @@ def main() -> None:
     processing = process_new_jobs(analyse=not args.no_analysis, limit=args.limit, retry=args.retry_failed)
     print_summary(result)
     with Session(get_engine()) as session:
-        print_new_jobs(session, result.new_job_ids)
+        print_new_jobs(session, result.new_job_ids, args.show_rejected)
         print_processing(session, processing)
 
 

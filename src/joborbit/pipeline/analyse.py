@@ -116,7 +116,7 @@ def run_analysis(
         run.cost_usd += answer.cost_usd
 
     logger.info(
-        "Analysis: %d done, %d failed, %d waiting%s",
+        "Analysis: %d done, %d failed, %d not reached%s",
         len(run.done), len(run.failed), len(job_ids) - len(run.done) - len(run.failed),
         f" (stopped: {run.stopped})" if run.stopped else "",
     )

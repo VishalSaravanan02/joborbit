@@ -103,11 +103,28 @@ def test_missing_values_are_said_plainly():
 # --- What is printed ----------------------------------------------------------------------------------
 
 
-def test_each_new_job_shows_the_prefilters_verdict(session, capsys):
-    run_cycle.print_new_jobs(session, [1, 2])
+def test_each_new_job_shows_the_prefilters_verdict_when_asked(session, capsys):
+    run_cycle.print_new_jobs(session, [1, 2], show_rejected=True)
     out = capsys.readouterr().out
+    assert "New jobs:\n" in out
     assert "Acme: Graduate Data Analyst (London)  [passed]\n    https://e.com/1" in out
     assert "Acme: Senior Data Analyst (London)  [rejected: senior title: senior]" in out
+    assert "not listed" not in out
+
+
+def test_by_default_only_new_jobs_that_passed_are_listed(session, capsys):
+    run_cycle.print_new_jobs(session, [1, 2])
+    out = capsys.readouterr().out
+    assert "New jobs that passed the pre-filter:\n  Acme: Graduate Data Analyst (London)  [passed]" in out
+    assert "Senior Data Analyst" not in out
+    assert "1 other new job not listed (--show-rejected lists them)." in out
+
+
+def test_when_no_new_job_passed_only_the_count_is_shown(session, capsys):
+    run_cycle.print_new_jobs(session, [2])
+    out = capsys.readouterr().out
+    assert "New jobs" not in out
+    assert "1 other new job not listed" in out
 
 
 def test_no_new_jobs_prints_nothing(session, capsys):
