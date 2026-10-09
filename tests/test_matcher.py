@@ -99,7 +99,7 @@ def test_a_fitting_job_is_saved_as_a_scored_routed_match(session):
     [match] = matches(session)
     assert (match.job_id, match.score, match.tier) == (job.id, 80, "instant")  # 30 + 25 + 10 (1 of 2 skills) + 15
     assert match.components == {"role_fit": 30, "entry_fit": 25, "skills": 10, "country": 15, "transfer": 0}
-    assert match.reasons == ["Role: Data Analyst", "Graduate role", "London, your #1 country"]
+    assert match.reasons == ["Role: Data Analyst", "Graduate role", "London"]
     assert match.created_at == match.scored_at and job.matched_at == match.created_at
 
     assert run.jobs == 1 and not run.dropped
@@ -115,7 +115,7 @@ def test_notes_are_saved_after_the_reasons(session):
     run_matching(session)
     [match] = matches(session)
     assert match.reasons[-1] == "Experience required (no number given)"
-    assert match.reasons[:-1] == ["Role: Data Analyst", "London, your #1 country", "1 of your skills: SQL"]
+    assert match.reasons[:-1] == ["Role: Data Analyst", "London", "1 of your skills: SQL"]
 
 
 def test_a_job_that_breaks_a_hard_filter_makes_no_match_but_is_still_done(session):

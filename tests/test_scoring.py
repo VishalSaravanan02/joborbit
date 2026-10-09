@@ -71,7 +71,7 @@ def test_a_role_only_the_llm_found_gives_less():
     job = make_job(title="Graduate Decision Science Associate")
     result = score(job)
     assert result.points["role_fit"] == pytest.approx(21)
-    assert result.reasons == ["Graduate role", "Role: Data Scientist", "London, your #1 country"]
+    assert result.reasons == ["Graduate role", "Role: Data Scientist", "London"]
 
 
 def test_an_exact_match_of_any_of_the_users_roles_counts():
@@ -281,7 +281,14 @@ def test_a_single_country_list_gives_full_marks():
 
 
 def test_the_country_reason_names_the_city_when_there_is_one_country():
-    assert "London, your #1 country" in score().reasons
+    assert "London" in score().reasons
+
+
+def test_a_user_with_one_country_isnt_told_its_rank():
+    """"Your #1 country" only means something when there are others."""
+    assert "United Kingdom" in score(make_job(cities=())).reasons
+    two = score(make_job(cities=()), make_user(countries=("GB", "IN"))).reasons
+    assert "United Kingdom, your #1 country" in two
 
 
 def test_the_country_reason_names_the_country_when_the_job_is_in_several():
@@ -341,7 +348,7 @@ def test_a_preferred_industry_adds_its_bonus():
 def test_the_preferred_industry_reason_uses_its_name():
     job = make_job(seniority="mid", skills=("Java",))
     result = score(job, make_user(preferred_industries=frozenset({"fintech"})))
-    assert result.reasons == ["Role: Data Scientist", "London, your #1 country", "Preferred industry: Fintech"]
+    assert result.reasons == ["Role: Data Scientist", "London", "Preferred industry: Fintech"]
 
 
 def test_bonuses_not_earned_are_not_listed():
@@ -373,7 +380,7 @@ def test_at_most_three_reasons_with_the_most_points_first():
     """Role 30, country 15, favourite 15, skills 10, industry 5: the top three, in that order."""
     user = make_user(favourite_company_ids=frozenset({ACME}), preferred_industries=frozenset({"fintech"}))
     reasons = score(make_job(seniority="mid"), user).reasons
-    assert reasons == ["Role: Data Scientist", "London, your #1 country", "Favourite company"]
+    assert reasons == ["Role: Data Scientist", "London", "Favourite company"]
 
 
 def test_a_part_with_a_personal_weight_of_0_is_never_a_reason():
@@ -381,7 +388,7 @@ def test_a_part_with_a_personal_weight_of_0_is_never_a_reason():
     job = make_job(seniority="mid", skills=("Java",))
     result = score(job, make_user(weights={"role_fit": 0, "country": 45}))
     assert result.points["role_fit"] == 0
-    assert result.reasons == ["London, your #1 country"]
+    assert result.reasons == ["London"]
 
 
 def test_parts_that_gave_no_points_are_never_reasons():

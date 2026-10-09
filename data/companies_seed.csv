@@ -1,7 +1,7 @@
 name,size_category,industry,countries,careers_url,ats_type,ats_token,notes
 Monzo,medium,fintech,GB|ES,https://job-boards.greenhouse.io/monzo,greenhouse,monzo,
 Palantir,mnc,technology,GB|SG,https://jobs.lever.co/palantir,lever,palantir,
-ElevenLabs,startup,technology,GB|IN,https://jobs.ashbyhq.com/elevenlabs,ashby,elevenlabs,
+ElevenLabs,startup,ai,GB|IN,https://jobs.ashbyhq.com/elevenlabs,ashby,elevenlabs,
 Google DeepMind,mnc,ai,GB|IN,https://deepmind.google/about/careers/,,,AI
 Anthropic,medium,ai,GB|IN,https://www.anthropic.com/careers,greenhouse,anthropic,AI
 OpenAI,medium,ai,GB|SG|IN,https://openai.com/careers/,,,AI

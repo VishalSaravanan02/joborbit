@@ -246,7 +246,9 @@ def score_job(job: JobFacts, user: UserFacts, verdict: Verdict, config: ScoringC
     if country_place is not None:
         code = user.countries[country_place]
         place = job.cities[0] if job.cities and len(job.countries) == 1 else countries.get(code, code)
-        told.append((points["country"], f"{place}, your #{country_place + 1} country"))
+        # A place in the ranking only means something when the user has more than one country.
+        ranked = f", your #{country_place + 1} country" if len(user.countries) > 1 else ""
+        told.append((points["country"], f"{place}{ranked}"))
     if transfer_countries:
         others = [countries.get(code, code) for code in transfer_countries[1:]]
         told.append((points["transfer"], f"Company also in {', '.join(others)}"))
