@@ -26,7 +26,8 @@ llm:
     cached_input: 0.01  # input the provider has seen recently (e.g. our fixed instructions)
     output: 0.50  # includes the model's thinking
 
-# How a job that passed a user's hard filters is scored out of 100 (matching/scoring.py).
+# How a job that passed a user's hard filters is scored out of 100 (matching/scoring.py),
+# and where the score sends it.
 # Each part gives a value from 0 to 1, multiplied by its weight; bonuses are added on top,
 # and the total is capped at 100. Personal weights from the weekly tuning replace these.
 scoring:
@@ -55,3 +56,9 @@ scoring:
     max_counted: 6  # the job's skills counted at most, so 3 of 6 or more = 0.5
     unknown: 0.5  # the job or the user lists no skills
   evergreen_after_days: 30  # posted this long before we saw it: an old ad, re-listed
+  # Where a score goes, for each alert style a user can choose (matching/router.py): an instant
+  # alert at or above "instant", the daily digest at or above "digest", otherwise the dashboard only.
+  alert_styles:
+    fewer: {instant: 80, digest: 60}
+    balanced: {instant: 75, digest: 50}
+    more: {instant: 65, digest: 40}

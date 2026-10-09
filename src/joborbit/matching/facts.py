@@ -80,6 +80,7 @@ class UserFacts:
     highest_degree: str | None
     include_internships: bool
     transfer_boost: bool
+    alert_style: str  # "fewer", "balanced" or "more"
     weights: Mapping[str, float] | None  # personal scoring weights; None = the defaults
     favourite_company_ids: frozenset[int]
     never_miss_company_ids: frozenset[int]  # favourites with "never miss" on
@@ -101,6 +102,7 @@ class UserFacts:
             highest_degree=profile.highest_degree,
             include_internships=profile.include_internships,
             transfer_boost=profile.transfer_boost,
+            alert_style=profile.alert_style,
             weights=dict(profile.weights) if profile.weights else None,
             favourite_company_ids=frozenset(pref.company_id for pref in favourites),
             never_miss_company_ids=frozenset(pref.company_id for pref in favourites if pref.never_miss),

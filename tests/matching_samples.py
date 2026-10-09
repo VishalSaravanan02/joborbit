@@ -53,6 +53,7 @@ def make_user(**changes) -> UserFacts:
         highest_degree="master",
         include_internships=False,
         transfer_boost=True,
+        alert_style="balanced",
         weights=None,
         favourite_company_ids=frozenset(),
         never_miss_company_ids=frozenset(),

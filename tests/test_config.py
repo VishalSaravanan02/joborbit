@@ -256,6 +256,11 @@ VALID_SCORING = {
     "country": {"last_choice": 0.5, "unclear": 0.5},
     "skills": {"max_counted": 6, "unknown": 0.5},
     "evergreen_after_days": 30,
+    "alert_styles": {
+        "fewer": {"instant": 80, "digest": 60},
+        "balanced": {"instant": 75, "digest": 50},
+        "more": {"instant": 65, "digest": 40},
+    },
 }
 
 
@@ -352,6 +357,7 @@ def test_the_scoring_settings_are_loaded():
     }
     assert (scoring.country.last_choice, scoring.country.unclear) == (0.5, 0.5)
     assert (scoring.skills.max_counted, scoring.evergreen_after_days) == (6, 30)
+    assert scoring.alert_styles.model_dump() == VALID_SCORING["alert_styles"]
 
 
 def with_scoring(part: str, **changes) -> dict:
@@ -387,7 +393,18 @@ BAD_SCORING = {
     "no skills counted": with_scoring("skills", max_counted=0),
     "no evergreen age": {**VALID_SCORING, "evergreen_after_days": 0},
     "misspelt part": {**without(VALID_SCORING, "bonuses"), "bonus": VALID_SCORING["bonuses"]},
+    "alert style missing": {**VALID_SCORING, "alert_styles": without(VALID_SCORING["alert_styles"], "more")},
+    "threshold above 100": with_scoring("alert_styles", fewer={"instant": 101, "digest": 60}),
+    "negative threshold": with_scoring("alert_styles", more={"instant": 65, "digest": -1}),
+    "threshold missing": with_scoring("alert_styles", balanced={"instant": 75}),
+    "unknown alert style": with_scoring("alert_styles", loud={"instant": 50, "digest": 10}),
 }
+
+
+def test_a_digest_threshold_above_the_instant_one_is_explained(tmp_path):
+    scoring = with_scoring("alert_styles", balanced={"instant": 50, "digest": 75})
+    with pytest.raises(ValidationError, match=r"digest threshold \(75\) can't be above the instant one \(50\)"):
+        load_app_settings(write(tmp_path, settings_text(scoring=scoring)))
 
 
 @pytest.mark.parametrize("scoring", BAD_SCORING.values(), ids=BAD_SCORING.keys())
@@ -402,6 +419,8 @@ def test_bad_scoring_settings_are_refused(tmp_path, scoring):
         with_scoring("weights", role_fit=100, entry_fit=0, skills=0, country=0, transfer=0),  # one part only
         with_scoring("weights", role_fit=30.5, entry_fit=24.5),  # not whole numbers
         with_scoring("entry_fit", mid=0, graduate=1),  # the ends of the range
+        with_scoring("alert_styles", balanced={"instant": 60, "digest": 60}),  # no digest tier
+        with_scoring("alert_styles", more={"instant": 100, "digest": 0}),  # the ends of the score range
     ],
 )
 def test_edge_scoring_values_are_allowed(tmp_path, scoring):

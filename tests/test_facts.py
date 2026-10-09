@@ -45,7 +45,8 @@ def test_user_facts_are_built_from_the_profile_and_company_choices():
     profile = UserProfile(
         user_id=1, roles=["data_scientist", "data_analyst"], custom_roles=["Insights Analyst"], countries=["GB"],
         languages=["en", "es"], preferred_industries=["ai"], excluded_industries=["gambling"], skills=["Python"],
-        highest_degree="master", include_internships=False, transfer_boost=False, weights={"skills": 30},
+        highest_degree="master", include_internships=False, transfer_boost=False, alert_style="more",
+        weights={"skills": 30},
     )
     prefs = [
         UserCompanyPref(company_id=ACME, kind="favourite", never_miss=True),
@@ -55,7 +56,7 @@ def test_user_facts_are_built_from_the_profile_and_company_choices():
 
     assert UserFacts.from_rows(profile, prefs) == make_user(
         custom_roles=("Insights Analyst",), preferred_industries=frozenset({"ai"}),
-        excluded_industries=frozenset({"gambling"}), transfer_boost=False, weights={"skills": 30},
+        excluded_industries=frozenset({"gambling"}), transfer_boost=False, alert_style="more", weights={"skills": 30},
         favourite_company_ids=frozenset({ACME, 8}), never_miss_company_ids=frozenset({ACME}),
         excluded_company_ids=frozenset({9}),
     )
@@ -65,6 +66,6 @@ def test_empty_personal_weights_mean_the_defaults():
     profile = UserProfile(
         user_id=1, roles=["data_scientist", "data_analyst"], custom_roles=[], countries=["GB"],
         languages=["en", "es"], preferred_industries=[], excluded_industries=[], skills=["Python"],
-        highest_degree="master", include_internships=False, transfer_boost=True, weights={},
+        highest_degree="master", include_internships=False, transfer_boost=True, alert_style="balanced", weights={},
     )
     assert UserFacts.from_rows(profile, []).weights is None

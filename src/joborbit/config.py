@@ -296,8 +296,34 @@ class SkillsValues(BaseModel):
     unknown: Fraction  # the job or the user lists no skills
 
 
+class AlertThresholds(BaseModel):
+    """The lowest score for an instant alert, and for a place in the daily digest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instant: int = Field(ge=0, le=100)
+    digest: int = Field(ge=0, le=100)
+
+    @model_validator(mode="after")
+    def _digest_not_above_instant(self) -> "AlertThresholds":
+        if self.digest > self.instant:
+            raise ValueError(f"the digest threshold ({self.digest}) can't be above the instant one ({self.instant})")
+        return self
+
+
+class AlertStyles(BaseModel):
+    """The thresholds for each alert style a user can choose."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fewer: AlertThresholds
+    balanced: AlertThresholds
+    more: AlertThresholds
+
+
 class ScoringConfig(BaseModel):
-    """How a job that passed a user's hard filters is scored out of 100 (matching/scoring.py)."""
+    """How a job that passed a user's hard filters is scored out of 100 (matching/scoring.py),
+    and where each score is sent (matching/router.py)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -308,6 +334,7 @@ class ScoringConfig(BaseModel):
     country: CountryValues
     skills: SkillsValues
     evergreen_after_days: int = Field(gt=0)  # posted this long before we saw it: an old ad, re-listed
+    alert_styles: AlertStyles  # where each score goes: instant alert, daily digest, or dashboard only
 
 
 class AppSettings(BaseModel):
