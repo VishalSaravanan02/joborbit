@@ -4,7 +4,7 @@ Each class is one table, and each attribute is one column. Tables are added
 in the step that first needs them. All times are stored in UTC.
 
 Shared tables (one copy for everyone): companies, jobs, fetch_runs, job_analysis, llm_usage.
-Personal tables (one row per user): users, user_profiles, user_company_prefs.
+Personal tables (one row per user): users, user_profiles, user_company_prefs, matches.
 """
 
 from datetime import date, datetime
@@ -79,6 +79,7 @@ class Job(Base):
         Index("ix_jobs_first_seen_at", "first_seen_at"),
         Index("ix_jobs_fingerprint", "fingerprint"),
         Index("ix_jobs_analysis_status", "analysis_status"),
+        Index("ix_jobs_became_new_at", "became_new_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -92,6 +93,10 @@ class Job(Base):
     description_text: Mapped[str | None] = mapped_column(Text)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # When the job last became new: when first seen, or when it came back after a long gap as a
+    # fresh posting (first_seen_at stays the same then). Re-matching after a profile change looks
+    # back from this, so a job that became new again is never missed.
+    became_new_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime)
     missing_count: Mapped[int] = mapped_column(Integer, default=0)  # fetches in a row it was absent
@@ -108,6 +113,10 @@ class Job(Base):
     company: Mapped[Company] = relationship(back_populates="jobs")
     # Deleting a job deletes its analysis with it.
     analysis: Mapped["JobAnalysis | None"] = relationship(
+        back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
+    # Deleting a job deletes its matches with it.
+    matches: Mapped[list["Match"]] = relationship(
         back_populates="job", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -190,11 +199,14 @@ class User(Base):
     paused: Mapped[bool] = mapped_column(Boolean, default=False)  # /pause sets this
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
-    # Deleting a user deletes their profile and company choices with them.
+    # Deleting a user deletes their profile, company choices and matches with them.
     profile: Mapped["UserProfile | None"] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
     company_prefs: Mapped[list["UserCompanyPref"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+    matches: Mapped[list["Match"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -238,3 +250,30 @@ class UserCompanyPref(Base):
 
     user: Mapped[User] = relationship(back_populates="company_prefs")
     company: Mapped[Company] = relationship()
+
+
+class Match(Base):
+    """One job that passed one user's hard filters, with its score and where it was routed.
+
+    A job is matched at most once per user. Matching the same job again (after a profile
+    change, say) updates this row instead of adding another.
+    """
+
+    __tablename__ = "matches"
+    __table_args__ = (
+        UniqueConstraint("user_id", "job_id", name="uq_matches_user_id_job_id"),
+        Index("ix_matches_job_id", "job_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
+    score: Mapped[int] = mapped_column(Integer)  # 0 to 100
+    components: Mapped[dict[str, float]] = mapped_column(JSON, default=dict)  # points per scoring component
+    reasons: Mapped[list[str]] = mapped_column(JSON, default=list)  # short "why" lines for the alert
+    tier: Mapped[str] = mapped_column(String(10))  # "instant", "digest" or "silent"
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    scored_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)  # when the score was last worked out
+
+    user: Mapped[User] = relationship(back_populates="matches")
+    job: Mapped[Job] = relationship(back_populates="matches")

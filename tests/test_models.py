@@ -14,6 +14,7 @@ from joborbit.db.models import (
     Job,
     JobAnalysis,
     LlmUsage,
+    Match,
     User,
     UserCompanyPref,
     UserProfile,
@@ -360,3 +361,113 @@ def test_llm_usage_has_one_row_per_day(session):
     session.add(LlmUsage(day=date(2026, 10, 8)))
     with pytest.raises(IntegrityError):
         session.flush()
+
+
+# --- Matches ----------------------------------------------------------------------------------
+
+
+def add_user_and_job(session) -> tuple[User, Job]:
+    user = make_user()
+    session.add(user)
+    job = add_job(session)
+    return user, job
+
+
+def make_match(user_id: int, job_id: int, **overrides) -> Match:
+    """A match with only the columns that have no default filled in."""
+    data = {"user_id": user_id, "job_id": job_id, "score": 90, "tier": "instant"}
+    data.update(overrides)
+    return Match(**data)
+
+
+def test_a_new_job_became_new_when_it_was_saved(session):
+    job = add_job(session)
+    session.commit()
+    assert job.became_new_at is not None
+
+
+def test_a_match_saves_with_sensible_defaults(session):
+    user, job = add_user_and_job(session)
+    session.add(make_match(user.id, job.id, reasons=["Graduate scheme"]))
+    session.commit()
+    session.expire_all()
+
+    [match] = user.matches
+    assert match.job.title == "Graduate Data Scientist" and job.matches == [match]
+    assert (match.score, match.tier, match.reasons, match.components) == (90, "instant", ["Graduate scheme"], {})
+    assert match.created_at is not None and match.scored_at is not None
+
+
+@pytest.mark.parametrize("missing", ["score", "tier"])
+def test_a_match_must_record_its_score_and_tier(session, missing):
+    user, job = add_user_and_job(session)
+    session.add(make_match(user.id, job.id, **{missing: None}))
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_a_job_is_matched_at_most_once_per_user(session):
+    user, job = add_user_and_job(session)
+    session.add(make_match(user.id, job.id))
+    session.flush()
+    session.add(make_match(user.id, job.id, score=50, tier="digest"))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_two_users_can_match_the_same_job(session):
+    user, job = add_user_and_job(session)
+    other = make_user(2)
+    session.add(other)
+    session.flush()
+    session.add_all([make_match(user.id, job.id), make_match(other.id, job.id)])
+    session.commit()
+    assert len(job.matches) == 2
+
+
+@pytest.mark.parametrize("bad", [{"user_id": 999}, {"job_id": 999}])
+def test_a_match_must_belong_to_a_real_user_and_job(session, bad):
+    user, job = add_user_and_job(session)
+    session.flush()
+    session.add(make_match(**({"user_id": user.id, "job_id": job.id} | bad)))
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_deleting_a_user_deletes_their_matches_only(session):
+    user, job = add_user_and_job(session)
+    other = make_user(2)
+    session.add(other)
+    session.flush()
+    session.add_all([make_match(user.id, job.id), make_match(other.id, job.id)])
+    session.commit()
+
+    session.delete(user)
+    session.commit()
+
+    [remaining] = session.scalars(select(Match)).all()
+    assert remaining.user_id == other.id
+    assert session.scalars(select(Job)).one() is job  # jobs are shared: kept
+
+
+def test_deleting_a_job_deletes_its_matches(session):
+    user, job = add_user_and_job(session)
+    session.add(make_match(user.id, job.id))
+    session.commit()
+
+    session.delete(job)
+    session.commit()
+    assert session.scalars(select(Match)).all() == []
+    assert session.scalars(select(User)).one() is user
+
+
+@pytest.mark.parametrize("table", [User.__table__, Job.__table__])
+def test_the_database_itself_deletes_matches_with_their_user_or_job(session, table):
+    """Done by ON DELETE CASCADE, so a bulk clean-up can't leave matches behind."""
+    user, job = add_user_and_job(session)
+    session.add(make_match(user.id, job.id))
+    session.commit()
+
+    session.execute(table.delete())
+    session.commit()
+    assert session.scalars(select(Match)).all() == []

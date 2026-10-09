@@ -11,7 +11,7 @@ that list with the database and works out what changed:
 - Job missing from the list: counted. After CLOSE_AFTER_MISSING fetches in a row
   without it, it is closed.
 - Closed job that comes back: reopened. After a short gap it is reopened quietly;
-  after a long gap it is treated as a fresh posting.
+  after a long gap it is treated as a fresh posting (and became_new_at records when).
 
 An empty list closes nothing at first, because it is usually a glitch on the
 company's side. Only if a company has shown no jobs at all for EMPTY_REPLY_GRACE
@@ -128,6 +128,7 @@ def _add_new_job(
         description_text=description_text,
         posted_at=item.posted_at,
         first_seen_at=now,
+        became_new_at=now,
         last_seen_at=now,
         content_hash=_raw_hash(item),
         fingerprint=job_fingerprint(company.id, item.title, item.location_raw),
@@ -211,6 +212,7 @@ def _reopen(
         job.prefilter_status = "pending"
         job.prefilter_reason = None
         job.analysis_status = "pending"
+        job.became_new_at = now  # first_seen_at keeps the first time; this records the comeback
         result.new_job_ids.append(job.id)
         open_by_fingerprint.setdefault(job.fingerprint, job)
 

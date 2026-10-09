@@ -21,6 +21,7 @@ from joborbit.settings import PROJECT_ROOT, get_settings
 
 MIGRATIONS = PROJECT_ROOT / "src" / "joborbit" / "db" / "migrations"
 BEFORE_USERS = "2d223caf33cf"  # the version before the users tables were added
+BEFORE_MATCHES = "3d87c1822ecf"  # the version before matches and jobs.became_new_at were added
 
 
 @pytest.fixture
@@ -52,17 +53,22 @@ def version(path: Path) -> str | None:
 
 
 def add_linked_rows(path: Path) -> None:
-    """One company with a job and a fetch run pointing at it (as in the real database)."""
+    """One company with a job and a fetch run pointing at it (as in the real database).
+
+    Works at any version: jobs.became_new_at is filled in only once the column exists.
+    """
     with sqlite3.connect(path) as connection:
         connection.execute(
             "INSERT INTO companies (name, slug, size_category, countries, active, baseline_done, "
             "consecutive_failures, created_at) VALUES ('Acme', 'acme', 'startup', '[\"GB\"]', 1, 1, 0, '2026-10-01')"
         )
+        job_columns = [row[1] for row in connection.execute("PRAGMA table_info(jobs)")]
+        became_new = ("became_new_at, ", "'2026-10-01', ") if "became_new_at" in job_columns else ("", "")
         connection.execute(
-            "INSERT INTO jobs (company_id, ats_type, external_id, url, title, country_codes, first_seen_at, "
-            "last_seen_at, missing_count, is_baseline, prefilter_status, analysis_status) "
-            "VALUES (1, 'greenhouse', '1', 'https://e.com/1', 'Data Analyst', '[]', '2026-10-01', '2026-10-01', "
-            "0, 1, 'skipped', 'pending')"
+            f"INSERT INTO jobs (company_id, ats_type, external_id, url, title, country_codes, first_seen_at, "
+            f"{became_new[0]}last_seen_at, missing_count, is_baseline, prefilter_status, analysis_status) "
+            f"VALUES (1, 'greenhouse', '1', 'https://e.com/1', 'Data Analyst', '[]', '2026-10-01', "
+            f"{became_new[1]}'2026-10-01', 0, 1, 'skipped', 'pending')"
         )
         connection.execute("INSERT INTO fetch_runs (company_id, started_at, status) VALUES (1, '2026-10-01', 'ok')")
 
@@ -148,3 +154,20 @@ def test_a_failed_migration_changes_nothing(db_file, tmp_path, upgrade_body, err
         columns = [row[1] for row in connection.execute("PRAGMA table_info(companies)")]
         assert "extra_column" not in columns
         assert connection.execute("SELECT company_id FROM jobs").fetchall() == [(1,)]
+
+
+def test_existing_jobs_became_new_when_they_were_first_seen(db_file):
+    """Adding jobs.became_new_at fills it in for the jobs already there, then makes it required."""
+    config = alembic_config()
+    command.upgrade(config, BEFORE_MATCHES)
+    add_linked_rows(db_file)
+    with sqlite3.connect(db_file) as connection:
+        connection.execute("UPDATE jobs SET first_seen_at = '2026-10-03 09:20:00'")
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_file) as connection:
+        assert connection.execute("SELECT became_new_at FROM jobs").fetchall() == [("2026-10-03 09:20:00",)]
+        required = {row[1]: row[3] for row in connection.execute("PRAGMA table_info(jobs)")}
+        assert required["became_new_at"] == 1
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

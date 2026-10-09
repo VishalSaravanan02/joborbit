@@ -338,3 +338,37 @@ def test_a_long_gap_return_that_matches_an_open_job_is_a_duplicate(session, comp
     assert result.new_job_ids == [] and result.duplicates == 1
     assert job.duplicate_of_id == repost.id
     assert job.prefilter_status == SKIPPED
+
+
+# --- When a job became new ---------------------------------------------------------------
+
+
+def test_a_new_job_became_new_when_first_seen(session, company):
+    save(session, company, [make_job("1")], START)
+    job = job_by_id(session, "1")
+    assert job.became_new_at == job.first_seen_at == START
+
+
+def test_a_fresh_posting_after_a_long_gap_became_new_again(session, company):
+    closed_at = close_job_1(session, company)
+    back = closed_at + timedelta(days=8)
+    save(session, company, [make_job("1"), make_job("2", "Data Engineer")], back)
+
+    job = job_by_id(session, "1")
+    assert job.became_new_at == back
+    assert job.first_seen_at == START  # still the first time we saw it
+
+
+def test_a_quiet_reopen_does_not_become_new_again(session, company):
+    closed_at = close_job_1(session, company)
+    save(session, company, [make_job("1"), make_job("2", "Data Engineer")], closed_at + timedelta(days=2))
+    assert job_by_id(session, "1").became_new_at == START
+
+
+def test_a_long_gap_return_that_is_a_duplicate_does_not_become_new_again(session, company):
+    closed_at = close_job_1(session, company)
+    save(session, company, [make_job("2", "Data Engineer"), make_job("3")], closed_at + timedelta(days=1))  # re-post
+    save(
+        session, company, [make_job("1"), make_job("2", "Data Engineer"), make_job("3")], closed_at + timedelta(days=8)
+    )
+    assert job_by_id(session, "1").became_new_at == START
