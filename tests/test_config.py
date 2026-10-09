@@ -248,9 +248,22 @@ VALID_LLM = {
 }
 
 
-def settings_text(limits: dict = VALID_LIMITS, llm: dict = VALID_LLM, extra: str = "") -> str:
+VALID_SCORING = {
+    "weights": {"role_fit": 30, "entry_fit": 25, "skills": 20, "country": 15, "transfer": 10},
+    "bonuses": {"favourite_company": 15, "preferred_industry": 5},
+    "role_fit": {"exact": 1.0, "other": 0.7},
+    "entry_fit": {"graduate": 1.0, "entry": 0.9, "unknown": 0.6, "mid": 0.25, "required_without_years": 0.5},
+    "country": {"last_choice": 0.5, "unclear": 0.5},
+    "skills": {"max_counted": 6, "unknown": 0.5},
+    "evergreen_after_days": 30,
+}
+
+
+def settings_text(
+    limits: dict = VALID_LIMITS, llm: dict = VALID_LLM, extra: str = "", scoring: dict = VALID_SCORING
+) -> str:
     """A whole settings file: valid, except for whatever a test changes."""
-    return yaml.safe_dump({"limits": limits, "llm": llm}, sort_keys=False) + extra
+    return yaml.safe_dump({"limits": limits, "llm": llm, "scoring": scoring}, sort_keys=False) + extra
 
 
 def without(data: dict, key: str) -> dict:
@@ -283,7 +296,7 @@ def test_bad_settings_are_refused(tmp_path, limits, extra):
 
 def test_a_settings_file_without_the_llm_section_is_refused(tmp_path):
     with pytest.raises(ValidationError, match="llm"):
-        load_app_settings(write(tmp_path, yaml.safe_dump({"limits": VALID_LIMITS})))
+        load_app_settings(write(tmp_path, yaml.safe_dump({"limits": VALID_LIMITS, "scoring": VALID_SCORING})))
 
 
 BAD_LLM = {
@@ -325,3 +338,71 @@ def test_swapped_prices_are_explained(tmp_path):
 )
 def test_edge_values_are_allowed(tmp_path, llm):
     assert load_app_settings(write(tmp_path, settings_text(llm=llm))).llm.model_dump() == llm
+
+
+# --- The scoring section ------------------------------------------------------------------------
+
+
+def test_the_scoring_settings_are_loaded():
+    scoring = load_app_settings().scoring
+    assert scoring.weights.model_dump() == VALID_SCORING["weights"]
+    assert (scoring.bonuses.favourite_company, scoring.bonuses.preferred_industry) == (15, 5)
+    assert scoring.entry_fit.model_dump() == {
+        "graduate": 1.0, "entry": 0.9, "unknown": 0.6, "mid": 0.25, "required_without_years": 0.5
+    }
+    assert (scoring.country.last_choice, scoring.country.unclear) == (0.5, 0.5)
+    assert (scoring.skills.max_counted, scoring.evergreen_after_days) == (6, 30)
+
+
+def with_scoring(part: str, **changes) -> dict:
+    """VALID_SCORING with some values in one part changed."""
+    return {**VALID_SCORING, part: {**VALID_SCORING[part], **changes}}
+
+
+def test_a_settings_file_without_the_scoring_section_is_refused(tmp_path):
+    with pytest.raises(ValidationError, match="scoring"):
+        load_app_settings(write(tmp_path, yaml.safe_dump({"limits": VALID_LIMITS, "llm": VALID_LLM})))
+
+
+def test_weights_that_dont_add_up_to_100_are_explained(tmp_path):
+    with pytest.raises(ValidationError, match="must add up to 100, not 105"):
+        load_app_settings(write(tmp_path, settings_text(scoring=with_scoring("weights", skills=25))))
+
+
+@pytest.mark.parametrize("part", VALID_SCORING["weights"])
+def test_a_negative_weight_is_refused_even_when_they_add_up_to_100(tmp_path, part):
+    weights = {name: 0 for name in VALID_SCORING["weights"]} | {part: -10}
+    weights["role_fit" if part != "role_fit" else "skills"] = 110
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        load_app_settings(write(tmp_path, settings_text(scoring={**VALID_SCORING, "weights": weights})))
+
+
+BAD_SCORING = {
+    "weight missing": {**VALID_SCORING, "weights": without(VALID_SCORING["weights"], "transfer")},
+    "misspelt weight": with_scoring("weights", skill=20),
+    "negative bonus": with_scoring("bonuses", favourite_company=-1),
+    "value above 1": with_scoring("entry_fit", graduate=1.1),
+    "value below 0": with_scoring("country", unclear=-0.1),
+    "role value missing": {**VALID_SCORING, "role_fit": {"exact": 1.0}},
+    "no skills counted": with_scoring("skills", max_counted=0),
+    "no evergreen age": {**VALID_SCORING, "evergreen_after_days": 0},
+    "misspelt part": {**without(VALID_SCORING, "bonuses"), "bonus": VALID_SCORING["bonuses"]},
+}
+
+
+@pytest.mark.parametrize("scoring", BAD_SCORING.values(), ids=BAD_SCORING.keys())
+def test_bad_scoring_settings_are_refused(tmp_path, scoring):
+    with pytest.raises(ValidationError):
+        load_app_settings(write(tmp_path, settings_text(scoring=scoring)))
+
+
+@pytest.mark.parametrize(
+    "scoring",
+    [
+        with_scoring("weights", role_fit=100, entry_fit=0, skills=0, country=0, transfer=0),  # one part only
+        with_scoring("weights", role_fit=30.5, entry_fit=24.5),  # not whole numbers
+        with_scoring("entry_fit", mid=0, graduate=1),  # the ends of the range
+    ],
+)
+def test_edge_scoring_values_are_allowed(tmp_path, scoring):
+    assert load_app_settings(write(tmp_path, settings_text(scoring=scoring))).scoring.model_dump() == scoring

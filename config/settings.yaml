@@ -25,3 +25,33 @@ llm:
     input: 0.10
     cached_input: 0.01  # input the provider has seen recently (e.g. our fixed instructions)
     output: 0.50  # includes the model's thinking
+
+# How a job that passed a user's hard filters is scored out of 100 (matching/scoring.py).
+# Each part gives a value from 0 to 1, multiplied by its weight; bonuses are added on top,
+# and the total is capped at 100. Personal weights from the weekly tuning replace these.
+scoring:
+  weights:  # must add up to 100
+    role_fit: 30
+    entry_fit: 25
+    skills: 20
+    country: 15
+    transfer: 10
+  bonuses:
+    favourite_company: 15
+    preferred_industry: 5
+  role_fit:
+    exact: 1.0  # the title contains one of the role's keywords
+    other: 0.7  # a near match, or the role came from the LLM only
+  entry_fit:
+    graduate: 1.0  # graduate scheme or graduate role
+    entry: 0.9  # entry level (or an internship, for users who want them)
+    unknown: 0.6  # no clue about the level at all
+    mid: 0.25
+    required_without_years: 0.5  # the most it can be when experience is required with no number
+  country:
+    last_choice: 0.5  # the first country in the user's list is 1.0, falling evenly to this for the last
+    unclear: 0.5  # the posting doesn't say where; the alert asks to check
+  skills:
+    max_counted: 6  # the job's skills counted at most, so 3 of 6 or more = 0.5
+    unknown: 0.5  # the job or the user lists no skills
+  evergreen_after_days: 30  # posted this long before we saw it: an old ad, re-listed

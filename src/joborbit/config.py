@@ -7,7 +7,7 @@ in a config file gives a clear error straight away instead of odd behaviour late
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -234,6 +234,82 @@ class LlmConfig(BaseModel):
     prices_usd_per_million: LlmPrices
 
 
+Fraction = Annotated[float, Field(ge=0, le=1)]  # a value between 0 and 1
+
+
+class ScoringWeights(BaseModel):
+    """The most points each part of the score can give. They add up to 100."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role_fit: float = Field(ge=0)
+    entry_fit: float = Field(ge=0)
+    skills: float = Field(ge=0)
+    country: float = Field(ge=0)
+    transfer: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _add_up_to_100(self) -> "ScoringWeights":
+        total = sum(self.model_dump().values())
+        if abs(total - 100) > 1e-9:
+            raise ValueError(f"the weights must add up to 100, not {total:g}")
+        return self
+
+
+class ScoringBonuses(BaseModel):
+    """Points added on top of the weighted parts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    favourite_company: float = Field(ge=0)
+    preferred_industry: float = Field(ge=0)
+
+
+class RoleFitValues(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    exact: Fraction  # the title contains one of the role's keywords
+    other: Fraction  # the role came from a near match or from the LLM only
+
+
+class EntryFitValues(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    graduate: Fraction  # graduate scheme or graduate role
+    entry: Fraction  # entry level, or an internship for a user who wants them
+    unknown: Fraction  # no clue about the level at all
+    mid: Fraction
+    required_without_years: Fraction  # the most it can be when experience is required with no number
+
+
+class CountryValues(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_choice: Fraction  # the user's last country; their first is always 1.0
+    unclear: Fraction  # the posting doesn't say where
+
+
+class SkillsValues(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_counted: int = Field(gt=0)  # the job's skills counted at most: matching 3 of 6 or more = 0.5
+    unknown: Fraction  # the job or the user lists no skills
+
+
+class ScoringConfig(BaseModel):
+    """How a job that passed a user's hard filters is scored out of 100 (matching/scoring.py)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    weights: ScoringWeights
+    bonuses: ScoringBonuses
+    role_fit: RoleFitValues
+    entry_fit: EntryFitValues
+    country: CountryValues
+    skills: SkillsValues
+    evergreen_after_days: int = Field(gt=0)  # posted this long before we saw it: an old ad, re-listed
+
+
 class AppSettings(BaseModel):
     """Everything in settings.yaml. A new section gets a new field here when it is added."""
 
@@ -241,6 +317,7 @@ class AppSettings(BaseModel):
 
     limits: LimitsConfig
     llm: LlmConfig
+    scoring: ScoringConfig
 
 
 # --- Loading ------------------------------------------------------------------------

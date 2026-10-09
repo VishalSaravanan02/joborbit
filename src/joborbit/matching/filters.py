@@ -23,87 +23,15 @@ values such a job lower, and the alert asks the user to check the location.
 
 Which jobs are matched at all (open, analysed, not baseline) is the matcher's choice, not a
 rule here: these rules only compare one job with one user, so the dry run can reuse them on
-any job. Nothing here touches the database.
+any job. The job and the user arrive as JobFacts and UserFacts (facts.py), so nothing here
+touches the database.
 """
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 
-from joborbit.db.models import Company, Job, JobAnalysis, UserCompanyPref, UserProfile
-from joborbit.pipeline.location import parse_location
+from joborbit.matching.facts import JobFacts, UserFacts
 
 REQUIRED_YEARS_LIMIT = 1  # required experience of this many years or more drops the job
-
-
-@dataclass(frozen=True)
-class JobFacts:
-    """What the rules need to know about one analysed job."""
-
-    job_id: int
-    company_id: int
-    company_industry: str | None
-    company_countries: frozenset[str]
-    location_vague: bool  # the location text named no place ("Remote", "EMEA", blank)
-    countries: frozenset[str]  # from the analysis: where the job can be done
-    seniority: str | None
-    experience_years: int | None
-    experience_mandatory: bool
-    required_languages: frozenset[str]
-    role_families: tuple[str, ...]
-    matched_custom_roles: frozenset[str]  # lower case, for comparing
-    min_degree: str | None
-
-    @classmethod
-    def from_rows(cls, job: Job, analysis: JobAnalysis, company: Company) -> "JobFacts":
-        return cls(
-            job_id=job.id,
-            company_id=company.id,
-            company_industry=company.industry,
-            company_countries=frozenset(company.countries),
-            location_vague=parse_location(job.location_raw).ambiguous,
-            countries=frozenset(analysis.countries),
-            seniority=analysis.seniority,
-            experience_years=analysis.experience_years,
-            experience_mandatory=analysis.experience_mandatory,
-            required_languages=frozenset(analysis.required_languages),
-            role_families=tuple(analysis.role_families),
-            matched_custom_roles=frozenset(name.lower() for name in analysis.matched_custom_roles),
-            min_degree=analysis.min_degree,
-        )
-
-
-@dataclass(frozen=True)
-class UserFacts:
-    """What the rules need to know about one user."""
-
-    user_id: int
-    roles: frozenset[str]  # default role slugs
-    custom_roles: frozenset[str]  # lower case, for comparing
-    countries: tuple[str, ...]  # ranked: first = most wanted
-    languages: frozenset[str]
-    excluded_industries: frozenset[str]
-    highest_degree: str | None
-    include_internships: bool
-    excluded_company_ids: frozenset[int]
-    never_miss_company_ids: frozenset[int]
-
-    @classmethod
-    def from_rows(cls, profile: UserProfile, company_prefs: Iterable[UserCompanyPref]) -> "UserFacts":
-        prefs = list(company_prefs)
-        return cls(
-            user_id=profile.user_id,
-            roles=frozenset(profile.roles),
-            custom_roles=frozenset(name.lower() for name in profile.custom_roles),
-            countries=tuple(profile.countries),
-            languages=frozenset(profile.languages),
-            excluded_industries=frozenset(profile.excluded_industries),
-            highest_degree=profile.highest_degree,
-            include_internships=profile.include_internships,
-            excluded_company_ids=frozenset(pref.company_id for pref in prefs if pref.kind == "excluded"),
-            never_miss_company_ids=frozenset(
-                pref.company_id for pref in prefs if pref.kind == "favourite" and pref.never_miss
-            ),
-        )
 
 
 @dataclass(frozen=True)
@@ -160,7 +88,8 @@ def check_job(job: JobFacts, user: UserFacts) -> Verdict:
 
     # 7. Role (skipped for a "never miss" favourite).
     never_miss = job.company_id in user.never_miss_company_ids
-    has_role = bool(set(job.role_families) & user.roles) or bool(job.matched_custom_roles & user.custom_roles)
+    custom_roles = {name.lower() for name in user.custom_roles}
+    has_role = bool(set(job.role_families) & user.roles) or bool(job.matched_custom_roles & custom_roles)
     if not has_role and not never_miss:
         return _dropped("role: not one of yours")
 

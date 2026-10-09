@@ -1,54 +1,14 @@
 """Tests for the hard filters (joborbit/matching/filters.py).
 
-Every test starts from a job and a user that match, then changes one thing, so each test
-fails only for the reason it is about. Rules are tested in both directions.
+Every test starts from a job and a user that match (tests/matching_samples.py), then changes
+one thing, so each test fails only for the reason it is about. Rules are tested in both directions.
 """
 
-from dataclasses import replace
-
 import pytest
+from matching_samples import ACME, make_job, make_user
 
-from joborbit.db.models import Company, Job, JobAnalysis, UserCompanyPref, UserProfile
-from joborbit.matching.filters import REQUIRED_YEARS_LIMIT, JobFacts, UserFacts, check_job
-
-ACME = 7  # the company's id
-
-
-def make_job(**changes) -> JobFacts:
-    """A graduate data science job in London at a UK company: matches the default user."""
-    job = JobFacts(
-        job_id=1,
-        company_id=ACME,
-        company_industry="fintech",
-        company_countries=frozenset({"GB"}),
-        location_vague=False,
-        countries=frozenset({"GB"}),
-        seniority="graduate",
-        experience_years=None,
-        experience_mandatory=False,
-        required_languages=frozenset(),
-        role_families=("data_scientist",),
-        matched_custom_roles=frozenset(),
-        min_degree=None,
-    )
-    return replace(job, **changes)
-
-
-def make_user(**changes) -> UserFacts:
-    user = UserFacts(
-        user_id=1,
-        roles=frozenset({"data_scientist", "data_analyst"}),
-        custom_roles=frozenset(),
-        countries=("GB",),
-        languages=frozenset({"en", "es"}),
-        excluded_industries=frozenset(),
-        highest_degree="master",
-        include_internships=False,
-        excluded_company_ids=frozenset(),
-        never_miss_company_ids=frozenset(),
-    )
-    return replace(user, **changes)
-
+from joborbit.matching.facts import JobFacts, UserFacts
+from joborbit.matching.filters import REQUIRED_YEARS_LIMIT, check_job
 
 def reason(job: JobFacts | None = None, user: UserFacts | None = None) -> str:
     return check_job(job or make_job(), user or make_user()).reason
@@ -213,13 +173,13 @@ def test_any_of_the_jobs_roles_counts():
 
 
 def test_a_matched_custom_role_counts_whatever_the_capitals():
-    user = make_user(custom_roles=frozenset({"insights analyst"}))
+    user = make_user(custom_roles=("Insights Analyst",))
     job = make_job(role_families=(), matched_custom_roles=frozenset({"insights analyst"}))
     assert reason(job, user) == "passed"
 
 
 def test_another_users_custom_role_doesnt_count():
-    user = make_user(custom_roles=frozenset({"insights analyst"}))
+    user = make_user(custom_roles=("Insights Analyst",))
     job = make_job(role_families=(), matched_custom_roles=frozenset({"pricing analyst"}))
     assert reason(job, user) == "role: not one of yours"
 
@@ -259,36 +219,3 @@ def test_never_miss_still_needs_the_right_country_level_and_language(change, exp
 def test_the_first_rule_broken_is_the_one_reported():
     job = make_job(countries=frozenset({"IN"}), seniority="senior", role_families=())
     assert reason(job) == "country: IN (not yours)"
-
-
-# --- Built from database rows ----------------------------------------------------------------------
-
-
-def test_facts_are_built_from_database_rows():
-    company = Company(id=ACME, name="Acme", slug="acme", industry="ai", countries=["GB", "IN"])
-    job = Job(id=3, company_id=ACME, location_raw="Remote")
-    analysis = JobAnalysis(
-        job_id=3, countries=[], seniority="entry", experience_years=None, experience_mandatory=True,
-        required_languages=["en"], role_families=["ai_engineer"], matched_custom_roles=["Insights Analyst"],
-        min_degree="bachelor",
-    )
-    facts = JobFacts.from_rows(job, analysis, company)
-    assert facts == make_job(
-        job_id=3, company_industry="ai", company_countries=frozenset({"GB", "IN"}), location_vague=True,
-        countries=frozenset(), seniority="entry", experience_mandatory=True, required_languages=frozenset({"en"}),
-        role_families=("ai_engineer",), matched_custom_roles=frozenset({"insights analyst"}), min_degree="bachelor",
-    )
-
-    profile = UserProfile(
-        user_id=1, roles=["data_scientist", "data_analyst"], custom_roles=["Insights Analyst"], countries=["GB"],
-        languages=["en", "es"], excluded_industries=["gambling"], highest_degree="master", include_internships=False,
-    )
-    prefs = [
-        UserCompanyPref(company_id=ACME, kind="favourite", never_miss=True),
-        UserCompanyPref(company_id=8, kind="favourite", never_miss=False),
-        UserCompanyPref(company_id=9, kind="excluded", never_miss=False),
-    ]
-    assert UserFacts.from_rows(profile, prefs) == make_user(
-        custom_roles=frozenset({"insights analyst"}), excluded_industries=frozenset({"gambling"}),
-        excluded_company_ids=frozenset({9}), never_miss_company_ids=frozenset({ACME}),
-    )
