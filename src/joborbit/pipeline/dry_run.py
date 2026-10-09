@@ -11,6 +11,10 @@ same steps on it:
    `limit` of them, newest jobs first);
 3. matching for every active user: the hard filters, the score and the tier.
 
+Each run can also write a review sheet (write_review): one row per user and job, plus the jobs the
+pre-filter rejected as "no matching role", with an empty "want" column for a person to fill in.
+Answers already given in the previous sheet are carried over, so running again never loses them.
+
 Nothing in the database changes: no job statuses, no analyses, no matches, nothing sent. The LLM
 calls still go through the normal client, so the daily cap and the monthly budget apply and the
 cost is recorded in llm_usage. New answers are kept in the answers file instead
@@ -19,6 +23,7 @@ seen. A saved answer is reused only while the prompt version, the job's text and
 it was asked with are all unchanged.
 """
 
+import csv
 import json
 import logging
 import os
@@ -49,6 +54,8 @@ from joborbit.settings import PROJECT_ROOT
 logger = logging.getLogger(__name__)
 
 DEFAULT_ANSWERS_FILE = PROJECT_ROOT / "var" / "dry_run" / "answers.json"
+DEFAULT_REVIEW_FILE = PROJECT_ROOT / "var" / "dry_run" / "review.csv"
+NO_ROLE = "no matching role"  # the pre-filter reason whose jobs go in the review sheet
 DEFAULT_DAYS = 14
 DEFAULT_LIMIT = 100  # jobs asked about per run at most (a retried answer is two calls for one job)
 
@@ -114,6 +121,22 @@ class DryResult:
     reasons: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
     dropped: str | None = None  # the hard filter's reason, when dropped
+    location: str | None = None  # as the company wrote it
+    seniority: str | None = None  # from the analysis
+    experience_years: int | None = None
+    experience_mandatory: bool = False
+
+
+@dataclass(frozen=True)
+class Unmatched:
+    """A job the pre-filter rejected because its title matched none of the roles: worth a look by a person."""
+
+    job_id: int
+    company: str
+    title: str
+    location: str | None
+    url: str
+    posted_at: datetime
 
 
 @dataclass
@@ -134,6 +157,7 @@ class DryRun:
     stopped: str | None = None  # why the LLM stopped, if it did
     cost_usd: float = 0.0
     results: list[DryResult] = field(default_factory=list)
+    unmatched: list[Unmatched] = field(default_factory=list)  # pre-filter: no matching role
 
     @property
     def days(self) -> float:
@@ -189,6 +213,10 @@ def run_dry_run(
         decision = prefilter_job(job.title, job.location_raw, rules)
         if not decision.passed:
             run.rejected[reason_kind(decision.reason)] += 1
+            if decision.reason == NO_ROLE:
+                run.unmatched.append(
+                    Unmatched(job.id, company.name, job.title, job.location_raw, job.url, job.posted_at)
+                )
             continue
         run.passed += 1
 
@@ -266,7 +294,8 @@ def _unsaved_analysis(job: Job, result: JobAnalysisResult) -> JobAnalysis:
 def _result_for(job: Job, company: Company, facts: JobFacts, user_name: str, user_facts: UserFacts) -> DryResult:
     base = {
         "user_name": user_name, "job_id": job.id, "company": company.name, "title": job.title,
-        "url": job.url, "posted_at": job.posted_at,
+        "url": job.url, "posted_at": job.posted_at, "location": job.location_raw, "seniority": facts.seniority,
+        "experience_years": facts.experience_years, "experience_mandatory": facts.experience_mandatory,
     }
     verdict = check_filters(facts, user_facts)
     if not verdict.passed:
@@ -277,3 +306,83 @@ def _result_for(job: Job, company: Company, facts: JobFacts, user_name: str, use
         **base, tier=tier, score=score.score, points=score.points,
         reasons=tuple(score.reasons), notes=tuple(score.notes),
     )
+
+
+# --- The review sheet ----------------------------------------------------------------------------------
+
+PART_NAMES = {
+    "role_fit": "role", "entry_fit": "level", "skills": "skills", "country": "country", "transfer": "transfer",
+    "favourite_company": "favourite", "preferred_industry": "industry",
+}
+REVIEW_COLUMNS = [
+    "want", "stage", "score", "user", "company", "title", "location", "posted", "level", "experience",
+    "points", "why", "url", "job id",
+]
+STAGE_ORDER = {"instant": 0, "digest": 1, "silent": 2, "dropped": 3, "prefilter": 4}
+
+
+def points_line(points: dict[str, float]) -> str:
+    """ "role 30 | level 6.25 | skills 13.33 | country 15 | transfer 0" """
+    return " | ".join(f"{PART_NAMES.get(part, part)} {value:g}" for part, value in points.items())
+
+
+def experience_words(mandatory: bool, years: int | None) -> str:
+    """The experience asked for, in a few words: "required, no number", "2+ years preferred", "none asked"."""
+    if years is None:
+        return "required, no number" if mandatory else "none asked"
+    return f"{years}+ years {'required' if mandatory else 'preferred'}"
+
+
+def review_rows(run: DryRun) -> list[dict[str, str]]:
+    """Every user's results, then the pre-filter's "no matching role" jobs, best first, without answers."""
+    rows = []
+    for result in run.results:
+        stage = result.tier or "dropped"
+        why = "; ".join([*result.reasons, *result.notes]) if result.tier else result.dropped
+        rows.append({
+            "want": "", "stage": stage, "score": "" if result.score is None else str(result.score),
+            "user": result.user_name, "company": result.company, "title": result.title,
+            "location": result.location or "", "posted": f"{result.posted_at:%Y-%m-%d}",
+            "level": result.seniority or "unclear",
+            "experience": experience_words(result.experience_mandatory, result.experience_years),
+            "points": points_line(result.points), "why": why or "", "url": result.url, "job id": str(result.job_id),
+        })
+    for job in run.unmatched:
+        rows.append({
+            "want": "", "stage": "prefilter", "score": "", "user": "", "company": job.company, "title": job.title,
+            "location": job.location or "", "posted": f"{job.posted_at:%Y-%m-%d}", "level": "", "experience": "",
+            "points": "", "why": f"pre-filter: {NO_ROLE}", "url": job.url, "job id": str(job.job_id),
+        })
+    rows.sort(key=lambda row: (STAGE_ORDER[row["stage"]], -int(row["score"] or 0), row["company"], row["title"]))
+    return rows
+
+
+def write_review(run: DryRun, path: Path) -> tuple[int, int]:
+    """Write the review sheet, keeping every "want" answer from the sheet already there.
+
+    Answers are matched by user and job id, so they follow a job whatever its new tier or score.
+    Returns (rows written, answers kept). Written with a byte-order mark so Excel reads the accents.
+    """
+    answers: dict[tuple[str, str], str] = {}
+    if path.exists():
+        with path.open(encoding="utf-8-sig", newline="") as file:
+            for old in csv.DictReader(file):
+                if old.get("want", "").strip():
+                    answers[(old.get("user", ""), old.get("job id", ""))] = old["want"].strip()
+
+    rows = review_rows(run)
+    kept = 0
+    for row in rows:
+        answer = answers.get((row["user"], row["job id"]))
+        if answer:
+            row["want"] = answer
+            kept += 1
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    with temporary.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=REVIEW_COLUMNS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+    os.replace(temporary, path)  # a crash never leaves half a sheet, or loses the answers
+    return len(rows), kept

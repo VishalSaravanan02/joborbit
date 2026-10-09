@@ -7,6 +7,10 @@ user, how many jobs would be instant alerts, digest lines or silent, the rate pe
 instant and digest job with its score in parts, reasons and notes. Run it again after changing
 roles.yaml, seniority.yaml or the scoring settings: only jobs not seen before cost anything.
 
+Also writes var/dry_run/review.csv: every job above for every user, plus the jobs the pre-filter
+rejected as "no matching role", with an empty "want" column. Fill it in (yes, maybe or no) and save
+it as CSV under the same name: running again keeps your answers.
+
 Usage:
     python scripts/dry_run.py [--days 14] [--limit 100] [--no-analysis] [--show-silent] [--show-dropped]
 
@@ -24,24 +28,23 @@ from sqlalchemy.orm import Session
 
 from joborbit.db.session import get_engine
 from joborbit.llm.client import make_client
-from joborbit.pipeline.dry_run import DEFAULT_DAYS, DEFAULT_LIMIT, DryResult, DryRun, run_dry_run
+from joborbit.pipeline.dry_run import (
+    DEFAULT_DAYS,
+    DEFAULT_LIMIT,
+    DEFAULT_REVIEW_FILE,
+    DryResult,
+    DryRun,
+    points_line,
+    run_dry_run,
+    write_review,
+)
+from joborbit.settings import PROJECT_ROOT
 from joborbit.utils.logging import setup_logging
 from joborbit.utils.timeutil import utcnow
-
-PART_NAMES = {
-    "role_fit": "role", "entry_fit": "level", "skills": "skills", "country": "country", "transfer": "transfer",
-    "favourite_company": "favourite", "preferred_industry": "industry",
-}
-TIERS = ("instant", "digest", "silent")
 
 
 def plural(count: int, word: str, many: str | None = None) -> str:
     return word if count == 1 else (many or f"{word}s")
-
-
-def points_line(points: dict[str, float]) -> str:
-    """ "role 30 | level 6.25 | skills 13.33 | country 15 | transfer 0" """
-    return " | ".join(f"{PART_NAMES.get(part, part)} {value:g}" for part, value in points.items())
 
 
 def print_job(result: DryResult) -> None:
@@ -139,6 +142,11 @@ def main() -> None:
             client_factory=None if args.no_analysis else make_client,
         )
     print_report(run, args.show_silent, args.show_dropped)
+    rows, kept = write_review(run, DEFAULT_REVIEW_FILE)
+    print(
+        f"\nReview sheet: {DEFAULT_REVIEW_FILE.relative_to(PROJECT_ROOT)} ({rows} {plural(rows, 'row')}, "
+        f"{kept} {plural(kept, 'answer')} kept from the last sheet). Fill in the want column: yes, maybe or no."
+    )
 
 
 if __name__ == "__main__":

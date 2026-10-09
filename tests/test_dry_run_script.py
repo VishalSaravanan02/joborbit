@@ -140,17 +140,27 @@ def test_main_runs_the_dry_run_with_the_options_given(monkeypatch, capsys):
         seen.update(days=days, limit=limit, factory=client_factory)
         return make_run()
 
+    def fake_write(run, path):
+        seen.update(sheet=path)
+        return 18, 5
+
     monkeypatch.setattr(dry_run, "run_dry_run", fake_run)
+    monkeypatch.setattr(dry_run, "write_review", fake_write)  # never touch the real sheet: it holds answers
     monkeypatch.setattr(dry_run, "setup_logging", lambda *_: None)
     monkeypatch.setattr(dry_run, "get_engine", lambda: None)  # never open the real database in a test
     monkeypatch.setattr(sys, "argv", ["dry_run.py", "--days", "7", "--limit", "20"])
     dry_run.main()
-    assert seen == {"days": 7, "limit": 20, "factory": dry_run.make_client}
-    assert "Dry run over the last 14 days" in capsys.readouterr().out
+    assert seen == {"days": 7, "limit": 20, "factory": dry_run.make_client, "sheet": dry_run.DEFAULT_REVIEW_FILE}
+    out = capsys.readouterr().out
+    assert "Dry run over the last 14 days" in out
+    assert (
+        "\nReview sheet: var/dry_run/review.csv (18 rows, 5 answers kept from the last sheet). "
+        "Fill in the want column: yes, maybe or no.\n"
+    ) in out
 
     monkeypatch.setattr(sys, "argv", ["dry_run.py", "--no-analysis"])
     dry_run.main()
-    assert seen == {"days": 14, "limit": 100, "factory": None}
+    assert seen["days"] == 14 and seen["limit"] == 100 and seen["factory"] is None
 
 
 @pytest.mark.parametrize(

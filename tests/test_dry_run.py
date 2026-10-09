@@ -1,5 +1,7 @@
 """Tests for the dry run (joborbit/pipeline/dry_run.py). Nothing here contacts a real LLM."""
 
+import codecs
+import csv
 import json
 from datetime import datetime, timedelta
 
@@ -12,7 +14,17 @@ from joborbit.db.models import Base, Company, Job, JobAnalysis, LlmUsage, Match,
 from joborbit.db.session import create_sqlite_engine
 from joborbit.llm.client import LlmClient, LlmUnavailable, Provider, Reply
 from joborbit.llm.prompts import PROMPT_VERSION
-from joborbit.pipeline.dry_run import AnswerStore, run_dry_run
+from joborbit.pipeline.dry_run import (
+    REVIEW_COLUMNS,
+    AnswerStore,
+    DryResult,
+    DryRun,
+    Unmatched,
+    experience_words,
+    review_rows,
+    run_dry_run,
+    write_review,
+)
 
 NOW = datetime(2026, 10, 9, 9, 0)
 ANSWER = {
@@ -308,3 +320,119 @@ def test_a_mid_level_job_requiring_experience_is_kept_but_silent(sessions, store
     [result] = dry_run(sessions, store, client_with(sessions, mid)).results
     assert (result.score, result.tier) == (61, "silent")  # a digest score, held back by the cap
     assert result.notes == ("Experience required (no number given)",)
+
+
+# --- The review sheet -----------------------------------------------------------------------------------
+
+
+def test_only_jobs_with_no_matching_role_are_kept_from_the_prefilter(sessions, store):
+    software = add_job(sessions, "Software Engineer", location_raw="London")
+    add_job(sessions, "Data Analyst", days_ago=2, location_raw="New York")  # country
+    add_job(sessions, "Senior Data Analyst", days_ago=3)  # senior title
+    run = dry_run(sessions, store)
+    assert run.rejected == {"no matching role": 1, "country": 1, "senior title": 1}
+    [job] = run.unmatched
+    assert (job.job_id, job.company, job.title, job.location, job.url) == (
+        software, "Acme", "Software Engineer", "London", "https://e.com/1"
+    )
+    assert job.posted_at == NOW - timedelta(days=1)
+
+
+def test_results_carry_the_location_level_and_experience(sessions, store):
+    add_job(sessions)
+    answer = json.dumps({**ANSWER, "seniority": "entry", "experience_years": 0, "experience_mandatory": True})
+    [result] = dry_run(sessions, store, client_with(sessions, answer)).results
+    assert (result.location, result.seniority, result.experience_years, result.experience_mandatory) == (
+        "London, UK", "entry", 0, True
+    )
+
+
+@pytest.mark.parametrize(
+    ("mandatory", "years", "words"),
+    [(True, None, "required, no number"), (False, None, "none asked"), (True, 2, "2+ years required"),
+     (False, 1, "1+ years preferred"), (True, 0, "0+ years required")],
+)
+def test_experience_is_said_in_a_few_words(mandatory, years, words):
+    assert experience_words(mandatory, years) == words
+
+
+def sheet_run() -> DryRun:
+    """Two users' results and one pre-filter job, in no particular order."""
+    posted = NOW - timedelta(days=1)
+    common = {"company": "Acme", "url": "https://e.com/1", "posted_at": posted, "location": "London"}
+    run = DryRun(since=NOW - timedelta(days=14), until=NOW)
+    run.results = [
+        DryResult(user_name="Vishal", job_id=2, title="Data Analyst", tier="silent", score=61,
+                  points={"role_fit": 30, "entry_fit": 6.25}, reasons=("Role: Data Analyst",),
+                  notes=("Experience required (no number given)",), seniority="mid", experience_mandatory=True,
+                  **common),
+        DryResult(user_name="Ana", job_id=2, title="Data Analyst", tier=None, score=None,
+                  dropped="role: not one of yours", seniority="mid", experience_mandatory=True, **common),
+        DryResult(user_name="Vishal", job_id=1, title="Graduate Analyst", tier="instant", score=80,
+                  points={"role_fit": 30}, reasons=("Graduate role", "London"), seniority="graduate", **common),
+    ]
+    run.unmatched = [Unmatched(3, "Acme", "Insights Specialist", None, "https://e.com/3", posted)]
+    return run
+
+
+def test_the_sheet_lists_every_stage_best_first_with_the_pre_filter_last():
+    rows = review_rows(sheet_run())
+    assert [(row["stage"], row["user"], row["job id"]) for row in rows] == [
+        ("instant", "Vishal", "1"), ("silent", "Vishal", "2"), ("dropped", "Ana", "2"), ("prefilter", "", "3"),
+    ]
+    instant, silent, dropped, prefilter = rows
+    assert instant == {
+        "want": "", "stage": "instant", "score": "80", "user": "Vishal", "company": "Acme",
+        "title": "Graduate Analyst", "location": "London", "posted": "2026-10-08", "level": "graduate",
+        "experience": "none asked", "points": "role 30", "why": "Graduate role; London",
+        "url": "https://e.com/1", "job id": "1",
+    }
+    assert silent["why"] == "Role: Data Analyst; Experience required (no number given)"
+    assert (silent["experience"], silent["points"]) == ("required, no number", "role 30 | level 6.25")
+    assert (dropped["score"], dropped["points"], dropped["why"]) == ("", "", "role: not one of yours")
+    assert (prefilter["level"], prefilter["location"], prefilter["why"]) == ("", "", "pre-filter: no matching role")
+
+
+def read_sheet(path):
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        return list(csv.DictReader(file))
+
+
+def test_the_sheet_is_written_for_excel_with_every_column(tmp_path):
+    path = tmp_path / "new" / "review.csv"
+    assert write_review(sheet_run(), path) == (4, 0)
+    assert path.read_bytes().startswith(codecs.BOM_UTF8)  # so Excel reads accents correctly
+    assert path.read_text(encoding="utf-8-sig").splitlines()[0] == ",".join(REVIEW_COLUMNS)
+    assert [row["title"] for row in read_sheet(path)] == [
+        "Graduate Analyst", "Data Analyst", "Data Analyst", "Insights Specialist",
+    ]
+    assert not path.with_suffix(".tmp").exists()
+
+
+def test_answers_in_the_last_sheet_are_kept_by_user_and_job(tmp_path):
+    path = tmp_path / "review.csv"
+    write_review(sheet_run(), path)
+    rows = read_sheet(path)
+    answers = {("Vishal", "1"): "yes", ("Ana", "2"): " no ", ("", "3"): "maybe"}
+    for row in rows:
+        row["want"] = answers.get((row["user"], row["job id"]), "")
+    rows.append({**rows[0], "job id": "99", "want": "yes"})  # a job no longer in the run: its answer goes
+    with path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=REVIEW_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    assert write_review(sheet_run(), path) == (4, 3)
+    assert [(row["user"], row["job id"], row["want"]) for row in read_sheet(path)] == [
+        ("Vishal", "1", "yes"), ("Vishal", "2", ""), ("Ana", "2", "no"), ("", "3", "maybe"),
+    ]
+
+
+def test_within_a_stage_the_highest_score_comes_first():
+    run = DryRun(since=NOW - timedelta(days=14), until=NOW)
+    common = {"user_name": "Vishal", "company": "Acme", "url": "https://e.com/1", "posted_at": NOW, "tier": "digest"}
+    run.results = [
+        DryResult(job_id=1, title="A Analyst", score=52, **common),  # first by name, last by score
+        DryResult(job_id=2, title="B Analyst", score=70, **common),
+    ]
+    assert [row["title"] for row in review_rows(run)] == ["B Analyst", "A Analyst"]
