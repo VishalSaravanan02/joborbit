@@ -12,8 +12,12 @@ PASSED = Verdict(passed=True, reason="passed")
 NEVER_MISS = Verdict(passed=True, reason="passed", never_miss=True)
 
 
-def scored(value: int, evergreen: bool = False) -> Score:
-    return Score(score=value, points={}, evergreen=evergreen)
+def scored(value: int, evergreen: bool = False, mid_required: bool = False) -> Score:
+    return Score(score=value, points={}, evergreen=evergreen, mid_required=mid_required)
+
+
+def with_cap(tier: str):
+    return CONFIG.model_copy(update={"mid_required_max_tier": tier})
 
 
 @pytest.mark.parametrize(
@@ -58,3 +62,30 @@ def test_the_settings_file_is_used_by_default():
 def test_an_unknown_alert_style_is_refused():
     with pytest.raises(ValueError, match="unknown alert style 'loud'"):
         route(scored(90), PASSED, "loud", CONFIG)
+
+
+# --- Mid-level jobs that require experience -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [90, 60, 30])
+def test_a_mid_level_job_requiring_experience_goes_no_higher_than_silent(value):
+    assert route(scored(value, mid_required=True), PASSED, "balanced", CONFIG) == SILENT
+
+
+@pytest.mark.parametrize(("value", "tier"), [(90, DIGEST), (60, DIGEST), (30, SILENT)])
+def test_the_cap_can_be_raised_to_the_digest(value, tier):
+    assert route(scored(value, mid_required=True), PASSED, "balanced", with_cap("digest")) == tier
+
+
+@pytest.mark.parametrize(("value", "tier"), [(90, INSTANT), (60, DIGEST), (30, SILENT)])
+def test_a_cap_of_instant_changes_nothing(value, tier):
+    assert route(scored(value, mid_required=True), PASSED, "balanced", with_cap("instant")) == tier
+
+
+def test_the_cap_and_the_evergreen_rule_together_give_the_lower_tier():
+    assert route(scored(90, evergreen=True, mid_required=True), PASSED, "balanced", with_cap("digest")) == DIGEST
+    assert route(scored(90, evergreen=True, mid_required=True), PASSED, "balanced", CONFIG) == SILENT
+
+
+def test_a_never_miss_favourite_is_instant_even_when_capped():
+    assert route(scored(30, mid_required=True), NEVER_MISS, "balanced", CONFIG) == INSTANT

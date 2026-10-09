@@ -335,6 +335,8 @@ class ScoringConfig(BaseModel):
     skills: SkillsValues
     evergreen_after_days: int = Field(gt=0)  # posted this long before we saw it: an old ad, re-listed
     alert_styles: AlertStyles  # where each score goes: instant alert, daily digest, or dashboard only
+    # The highest tier for a mid-level job that requires experience without saying how much.
+    mid_required_max_tier: Literal["instant", "digest", "silent"]
 
 
 class AppSettings(BaseModel):

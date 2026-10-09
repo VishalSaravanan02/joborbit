@@ -433,3 +433,24 @@ def test_notes_come_in_a_fixed_order():
     assert score(job, verdict=UNCLEAR).notes == [
         NOTE_COUNTRY_UNCLEAR, NOTE_EXPERIENCE_REQUIRED, "Originally posted Mar 2025",
     ]
+
+
+# --- Mid level with experience required -------------------------------------------------------------
+
+
+def test_a_mid_level_job_requiring_experience_with_no_number_is_flagged():
+    job = make_job(seniority="mid", experience_mandatory=True, experience_years=None)
+    assert score(job).mid_required is True
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"seniority": "mid", "experience_mandatory": False, "experience_years": None},  # experience preferred
+        {"seniority": "mid", "experience_mandatory": True, "experience_years": 0},  # "no experience needed"
+        {"seniority": "entry", "experience_mandatory": True, "experience_years": None},  # not mid
+        {"seniority": None, "experience_mandatory": True, "experience_years": None},  # level unknown
+    ],
+)
+def test_other_jobs_are_not_flagged(changes):
+    assert score(make_job(**changes)).mid_required is False

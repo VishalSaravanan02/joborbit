@@ -20,6 +20,8 @@ Bonuses are added on top (a favourite company, a preferred industry) and the tot
 With the score come up to MAX_REASONS short reasons (the parts that gave the most points, in
 plain words, for the alert) and notes the user should always see: the location isn't stated,
 experience is required with no number, or the ad is old (first posted long before we saw it).
+Two flags tell the router to hold a job back: `evergreen` (an old ad) and `mid_required` (a
+mid-level job that requires experience with no number given).
 """
 
 import math
@@ -50,6 +52,7 @@ class Score:
     reasons: list[str] = field(default_factory=list)  # the parts that gave the most points
     notes: list[str] = field(default_factory=list)  # things the user should always be told
     evergreen: bool = False  # first posted long before we saw it
+    mid_required: bool = False  # mid level, and experience required with no number given
 
 
 # --- Skills ----------------------------------------------------------------------------------
@@ -281,4 +284,5 @@ def score_job(job: JobFacts, user: UserFacts, verdict: Verdict, config: ScoringC
         reasons=reasons,
         notes=notes,
         evergreen=evergreen,
+        mid_required=job.seniority == "mid" and job.experience_mandatory and job.experience_years is None,
     )

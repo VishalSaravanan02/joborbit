@@ -261,6 +261,7 @@ VALID_SCORING = {
         "balanced": {"instant": 75, "digest": 50},
         "more": {"instant": 65, "digest": 40},
     },
+    "mid_required_max_tier": "silent",
 }
 
 
@@ -358,6 +359,7 @@ def test_the_scoring_settings_are_loaded():
     assert (scoring.country.last_choice, scoring.country.unclear) == (0.5, 0.5)
     assert (scoring.skills.max_counted, scoring.evergreen_after_days) == (6, 30)
     assert scoring.alert_styles.model_dump() == VALID_SCORING["alert_styles"]
+    assert scoring.mid_required_max_tier == "silent"
 
 
 def with_scoring(part: str, **changes) -> dict:
@@ -398,6 +400,8 @@ BAD_SCORING = {
     "negative threshold": with_scoring("alert_styles", more={"instant": 65, "digest": -1}),
     "threshold missing": with_scoring("alert_styles", balanced={"instant": 75}),
     "unknown alert style": with_scoring("alert_styles", loud={"instant": 50, "digest": 10}),
+    "unknown tier": {**VALID_SCORING, "mid_required_max_tier": "dashboard"},
+    "tier missing": without(VALID_SCORING, "mid_required_max_tier"),
 }
 
 
@@ -421,6 +425,7 @@ def test_bad_scoring_settings_are_refused(tmp_path, scoring):
         with_scoring("entry_fit", mid=0, graduate=1),  # the ends of the range
         with_scoring("alert_styles", balanced={"instant": 60, "digest": 60}),  # no digest tier
         with_scoring("alert_styles", more={"instant": 100, "digest": 0}),  # the ends of the score range
+        {**VALID_SCORING, "mid_required_max_tier": "instant"},  # no cap at all
     ],
 )
 def test_edge_scoring_values_are_allowed(tmp_path, scoring):

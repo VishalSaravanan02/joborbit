@@ -15,6 +15,9 @@ The rules, in order:
    that has been up for months has no such race, so an evergreen ad goes to the digest instead.
 3. A score at or above the digest threshold: digest.
 4. Anything lower: silent.
+5. A mid-level job that requires experience without saying how much goes no higher than
+   scoring.mid_required_max_tier (silent by default): a long shot for a graduate, kept on the
+   dashboard but not pushed. Its role and country alone would otherwise put it in every digest.
 
 The thresholds for each alert style ("fewer", "balanced", "more") are in settings.yaml
 (scoring.alert_styles). A paused user's matches are routed as usual: pausing stops sending,
@@ -26,6 +29,7 @@ from joborbit.matching.filters import Verdict
 from joborbit.matching.scoring import Score
 
 INSTANT, DIGEST, SILENT = "instant", "digest", "silent"
+_ORDER = (SILENT, DIGEST, INSTANT)  # lowest first
 
 
 def route(score: Score, verdict: Verdict, alert_style: str, config: ScoringConfig | None = None) -> str:
@@ -39,7 +43,11 @@ def route(score: Score, verdict: Verdict, alert_style: str, config: ScoringConfi
     if verdict.never_miss:
         return INSTANT
     if score.score >= thresholds.instant:
-        return DIGEST if score.evergreen else INSTANT
-    if score.score >= thresholds.digest:
-        return DIGEST
-    return SILENT
+        tier = DIGEST if score.evergreen else INSTANT
+    elif score.score >= thresholds.digest:
+        tier = DIGEST
+    else:
+        tier = SILENT
+    if score.mid_required:
+        tier = min(tier, config.mid_required_max_tier, key=_ORDER.index)
+    return tier

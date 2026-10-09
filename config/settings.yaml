@@ -62,3 +62,6 @@ scoring:
     fewer: {instant: 80, digest: 60}
     balanced: {instant: 75, digest: 50}
     more: {instant: 65, digest: 40}
+  # A mid-level job that requires experience (with no number given) is a long shot for a graduate:
+  # it goes no higher than this tier, whatever its score. silent = shown on the dashboard only.
+  mid_required_max_tier: silent

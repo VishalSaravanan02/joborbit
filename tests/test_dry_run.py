@@ -300,3 +300,11 @@ def test_the_dry_run_leaves_its_session_untouched_and_never_commits(sessions, st
         run_dry_run(session, NOW, client=client_with(sessions, GOOD), store=store)
 
     assert state == {"new": [], "dirty": []}
+
+
+def test_a_mid_level_job_requiring_experience_is_kept_but_silent(sessions, store):
+    add_job(sessions)
+    mid = json.dumps({**ANSWER, "seniority": "mid", "experience_mandatory": True})  # 30 + 6.25 + 10 + 15 = 61
+    [result] = dry_run(sessions, store, client_with(sessions, mid)).results
+    assert (result.score, result.tier) == (61, "silent")  # a digest score, held back by the cap
+    assert result.notes == ("Experience required (no number given)",)
